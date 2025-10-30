@@ -26,6 +26,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.monster.spider.Spider;
 import net.minecraft.world.entity.monster.zombie.ZombifiedPiglin;
+import net.minecraft.world.entity.player.Player;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,6 +68,7 @@ public class Avoidance {
         List<Avoidance> res = new ArrayList<>();
         double mobSpawnerCoeff = Baritone.settings().mobSpawnerAvoidanceCoefficient.value;
         double mobCoeff = Baritone.settings().mobAvoidanceCoefficient.value;
+        double playerCoeff = Baritone.settings().playerAvoidanceCoefficient.value;
         if (mobSpawnerCoeff != 1.0D) {
             ctx.worldData().getCachedWorld().getLocationsOf("mob_spawner", 1, ctx.playerFeet().x, ctx.playerFeet().z, 2)
                     .forEach(mobspawner -> res.add(new Avoidance(mobspawner, mobSpawnerCoeff, Baritone.settings().mobSpawnerAvoidanceRadius.value)));
@@ -78,6 +80,11 @@ public class Avoidance {
                     .filter(entity -> !(entity instanceof ZombifiedPiglin) || ((ZombifiedPiglin) entity).getLastHurtByMob() != null)
                     .filter(entity -> !(entity instanceof EnderMan) || ((EnderMan) entity).isCreepy())
                     .forEach(entity -> res.add(new Avoidance(entity.blockPosition(), mobCoeff, Baritone.settings().mobAvoidanceRadius.value)));
+        }
+        if (playerCoeff != 1.0D) {
+            ctx.entitiesStream()
+                    .filter(entity -> entity instanceof Player)
+                    .forEach(entity -> res.add(new Avoidance(entity.blockPosition(), playerCoeff, Baritone.settings().playerAvoidanceRadius.value)));
         }
         return res;
     }
