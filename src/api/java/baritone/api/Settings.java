@@ -472,6 +472,13 @@ public final class Settings {
     /**
      * Set to 1.0 to effectively disable this feature
      * <p>
+     * Set below 1.0 to go out of your way to walk near players
+     */
+    public final Setting<Double> playerAvoidanceCoefficient = new Setting<>(1.5);
+
+    /**
+     * Set to 1.0 to effectively disable this feature
+     * <p>
      * Set below 1.0 to go out of your way to walk near mobs
      */
     public final Setting<Double> mobAvoidanceCoefficient = new Setting<>(1.5);
@@ -480,6 +487,11 @@ public final class Settings {
      * Distance to avoid mobs.
      */
     public final Setting<Integer> mobAvoidanceRadius = new Setting<>(8);
+
+    /**
+     * Distance to avoid players.
+     */
+    public final Setting<Integer> playerAvoidanceRadius = new Setting<>(8);
 
     /**
      * When running a goto towards a container block (chest, ender chest, furnace, etc),
