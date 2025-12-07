@@ -78,6 +78,11 @@ public final class Settings {
     public final Setting<Boolean> allowSprintJumping = new Setting<>(true);
 
     /**
+     * Allow Baritone to sprint swim
+     */
+    public final Setting<Boolean> allowSprintSwimming = new Setting<>(true);
+
+    /**
      * Allow Baritone to place blocks
      */
     public final Setting<Boolean> allowPlace = new Setting<>(true);

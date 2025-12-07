@@ -123,8 +123,44 @@ public abstract class Movement implements IMovement, MovementHelper {
     public MovementStatus update() {
         ctx.player().getAbilities().flying = false;
         currentState = updateState(currentState);
-        if (MovementHelper.isLiquid(ctx, ctx.playerFeet()) && ctx.player().position().y < dest.y + 0.6) {
-            currentState.setInput(Input.JUMP, true);
+        if (MovementHelper.isLiquid(ctx, ctx.playerFeet())) {
+            boolean isLiquidUp = MovementHelper.isLiquid(ctx, ctx.playerFeet().above());
+            boolean isLiquidDown = MovementHelper.isLiquid(ctx, ctx.playerFeet().below());
+            boolean isShallow = !isLiquidUp && !isLiquidDown;
+            boolean isSprinting = ctx.player().isSprinting();
+
+            if (isShallow) {
+                // In 1 block deep water, just walk on the floor
+                if (dest.y > ctx.playerFeet().getY()) {
+                    currentState.setInput(Input.JUMP, true);
+                }
+            } else {
+                // In deep water
+                if (Baritone.settings().allowSprintSwimming.value) {
+                    currentState.setInput(Input.SPRINT, true);
+
+                    boolean isLiquidTwoUp = MovementHelper.isLiquid(ctx, ctx.playerFeet().above(2));
+
+                    if (isSprinting || isLiquidTwoUp) {
+                        if (dest.y + 0.005 > ctx.playerFeet().getY() && ctx.player().position().y < dest.y + 0.2) {
+                            currentState.setInput(Input.JUMP, true);
+                        }
+                    } else {
+                        currentState.setInput(Input.SNEAK, true);
+                    }
+
+                    double dx = dest.x + 0.5 - ctx.player().position().x;
+                    double dz = dest.z + 0.5 - ctx.player().position().z;
+                    float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+
+                    currentState.setTarget(new MovementState.MovementTarget(
+                            new Rotation(targetYaw, 0),
+                            true
+                    ));
+                } else if (ctx.player().position().y < dest.y + 0.6) {
+                    currentState.setInput(Input.JUMP, true);
+                }
+            }
         }
         if (ctx.player().isInWall()) {
             ctx.getSelectedBlock().ifPresent(pos -> MovementHelper.switchToBestToolFor(ctx, BlockStateInterface.get(ctx, pos)));
