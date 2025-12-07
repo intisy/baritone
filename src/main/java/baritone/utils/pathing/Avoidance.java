@@ -83,7 +83,13 @@ public class Avoidance {
         }
         if (playerCoeff != 1.0D) {
             ctx.entitiesStream()
-                    .filter(entity -> entity instanceof Player)
+                    .filter(entity ->
+                            entity instanceof Player player &&
+                            player != ctx.player() &&
+                            !player.isNoGravity() &&
+                            !player.isInvulnerable() &&
+                            !player.isSpectator()
+                    )
                     .forEach(entity -> res.add(new Avoidance(entity.blockPosition(), playerCoeff, Baritone.settings().playerAvoidanceRadius.value)));
         }
         return res;
