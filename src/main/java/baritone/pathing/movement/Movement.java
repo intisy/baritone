@@ -138,23 +138,23 @@ public abstract class Movement implements IMovement, MovementHelper {
                 // In deep water
                 if (Baritone.settings().allowSprintSwimming.value) {
                     currentState.setInput(Input.SPRINT, true);
-
+                    
                     boolean isLiquidTwoUp = MovementHelper.isLiquid(ctx, ctx.playerFeet().above(2));
 
                     if (isSprinting || isLiquidTwoUp) {
                         if (dest.y + 0.005 > ctx.playerFeet().getY() && ctx.player().position().y < dest.y + 0.2) {
                             currentState.setInput(Input.JUMP, true);
                         }
-                    } else {
-                        currentState.setInput(Input.SNEAK, true);
                     }
 
                     double dx = dest.x + 0.5 - ctx.player().position().x;
                     double dz = dest.z + 0.5 - ctx.player().position().z;
+                    float oldYaw = ctx.player().getYRot();
                     float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                    int supposedYaw = ((int) (targetYaw / 45)) * 45;
 
                     currentState.setTarget(new MovementState.MovementTarget(
-                            new Rotation(targetYaw, 0),
+                            new Rotation((targetYaw + supposedYaw + oldYaw) / 3, 0),
                             true
                     ));
                 } else if (ctx.player().position().y < dest.y + 0.6) {
