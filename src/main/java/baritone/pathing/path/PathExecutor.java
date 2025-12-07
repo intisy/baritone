@@ -35,6 +35,7 @@ import baritone.utils.BlockStateInterface;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
 import net.minecraft.util.Tuple;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import java.util.*;
 
@@ -238,6 +239,10 @@ public class PathExecutor implements IPathExecutor, Helper {
             if (!sprintNextTick) {
                 ctx.player().setSprinting(false); // letting go of control doesn't make you stop sprinting actually
             }
+            if (shouldJumpNextTick()) {
+                behavior.baritone.getInputOverrideHandler().setInputForceState(Input.JUMP, true);
+                overrideSprintJumpRotation();
+            }
             ticksOnCurrent++;
             if (ticksOnCurrent > currentMovementOriginalCostEstimate + Baritone.settings().movementTimeoutTicks.value) {
                 // only cancel if the total time has exceeded the initial estimate
@@ -372,7 +377,26 @@ public class PathExecutor implements IPathExecutor, Helper {
 
         // if the movement requested sprinting, then we're done
         if (requested) {
+            behavior.baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
             return true;
+        } else if (current instanceof MovementTraverse && Baritone.settings().allowSprintJumping.value) {
+            // Replicate MovementTraverse check to debug and override if safe
+            if (current instanceof MovementTraverse) {
+                MovementTraverse mt = (MovementTraverse) current;
+                BlockPos src = mt.getSrc();
+                BlockPos dest = mt.getDest();
+                BlockPos into = dest.subtract(src).offset(dest);
+                BlockState intoBelow = ctx.world().getBlockState(into.below());
+                BlockState intoAbove = ctx.world().getBlockState(into.above());
+                
+                boolean safe = (!MovementHelper.avoidWalkingInto(intoBelow) || MovementHelper.isWater(intoBelow)) && !MovementHelper.avoidWalkingInto(intoAbove);
+                
+                if (safe && !MovementHelper.isLiquid(ctx, ctx.playerFeet())) {
+                     behavior.baritone.getInputOverrideHandler().setInputForceState(Input.SPRINT, true);
+                     behavior.baritone.getInputOverrideHandler().setInputForceState(Input.MOVE_FORWARD, true);
+                     return true;
+                }
+            }
         }
 
         // however, descend and ascend don't request sprinting, because they don't know the context of what movement comes after it
@@ -575,6 +599,74 @@ public class PathExecutor implements IPathExecutor, Helper {
             return true;
         }
         return next instanceof MovementDiagonal && Baritone.settings().allowOvershootDiagonalDescend.value;
+    }
+
+
+    private boolean shouldJumpNextTick() {
+        if (!sprintNextTick) {
+            return false;
+        }
+        if (!Baritone.settings().allowSprintJumping.value) {
+            return false;
+        }
+        if (!ctx.player().onGround()) {
+            return false;
+        }
+        if (pathPosition >= path.length() - 1) {
+            return false;
+        }
+        if (ctx.player().getFoodData().getFoodLevel() <= 6) {
+            return false;
+        }
+        
+        int blocksToCheck = 5;
+        Vec3i direction = null;
+        for (int i = 0; i < blocksToCheck; i++) {
+            if (pathPosition + i >= path.movements().size()) {
+                return false;
+            }
+            IMovement movement = path.movements().get(pathPosition + i);
+            if (!(movement instanceof MovementTraverse)) {
+                return false;
+            }
+            if (direction == null) {
+                direction = movement.getDirection();
+            } else if (!direction.equals(movement.getDirection())) {
+                return false;
+            }
+            // check for headroom (3 blocks needed for jumping)
+            // Allow head hitters: only check if the block is DANGEROUS, not if it's fully passable.
+            // This allows jumping into solid blocks (ceiling boosting) as long as they aren't lava/fire/etc.
+            BlockPos headPos = movement.getSrc().above(2);
+            if (MovementHelper.avoidWalkingInto(ctx.world().getBlockState(headPos))) {
+                return false;
+            }
+            // check for safety
+            if (MovementHelper.avoidWalkingInto(ctx.world().getBlockState(movement.getSrc().above()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void overrideSprintJumpRotation() {
+        int blocksLookingAhead = 0;
+        Vec3i direction = null;
+        for (int i = 0; i < 5; i++) {
+             if (pathPosition + i >= path.movements().size()) break;
+             IMovement m = path.movements().get(pathPosition + i);
+             if (!(m instanceof MovementTraverse)) break;
+             if (direction == null) direction = m.getDirection();
+             else if (!direction.equals(m.getDirection())) break;
+             blocksLookingAhead = i;
+        }
+        
+        if (blocksLookingAhead > 0) {
+            IMovement targetMovement = path.movements().get(pathPosition + blocksLookingAhead);
+            BlockPos targetPos = targetMovement.getDest();
+            Rotation targetRot = RotationUtils.calcRotationFromVec3d(ctx.playerHead(), VecUtils.calculateBlockCenter(ctx.world(), targetPos), ctx.playerRotations());
+            behavior.baritone.getLookBehavior().updateTarget(targetRot, true);
+        }
     }
 
     private void onChangeInPathPosition() {

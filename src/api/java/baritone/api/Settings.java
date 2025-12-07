@@ -73,6 +73,11 @@ public final class Settings {
     public final Setting<Boolean> allowSprint = new Setting<>(true);
 
     /**
+     * Allow Baritone to sprint jump
+     */
+    public final Setting<Boolean> allowSprintJumping = new Setting<>(true);
+
+    /**
      * Allow Baritone to place blocks
      */
     public final Setting<Boolean> allowPlace = new Setting<>(true);
