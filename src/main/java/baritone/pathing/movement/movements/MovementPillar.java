@@ -196,12 +196,34 @@ public class MovementPillar extends Movement {
         }
         // Handle swimming up when not fully submerged but water is above (e.g., pressure plate with water above)
         if (!MovementHelper.isWater(fromDown) && MovementHelper.isWater(ctx, dest)) {
-            // swim up through water above
-            state.setTarget(new MovementState.MovementTarget(RotationUtils.calcRotationFromVec3d(ctx.playerHead(), VecUtils.getBlockPosCenter(dest), ctx.playerRotations()), false));
-            Vec3 destCenter = VecUtils.getBlockPosCenter(dest);
-            if (Math.abs(ctx.player().position().x - destCenter.x) > 0.2 || Math.abs(ctx.player().position().z - destCenter.z) > 0.2) {
-                state.setInput(Input.MOVE_FORWARD, true);
+            double dx = dest.x + 0.5 - ctx.player().position().x;
+            double dz = dest.z + 0.5 - ctx.player().position().z;
+            float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+
+            float currentYaw = ctx.playerRotations().getYaw();
+            float yawDiff = targetYaw - currentYaw;
+            while (yawDiff > 180) yawDiff -= 360;
+            while (yawDiff < -180) yawDiff += 360;
+
+            if (Math.abs(yawDiff) > 45) {
+                state.setTarget(new MovementState.MovementTarget(
+                        new Rotation(targetYaw, ctx.playerRotations().getPitch()),
+                        false
+                ));
             }
+
+            if (Math.abs(dx) > 0.2 || Math.abs(dz) > 0.2) {
+                if (Math.abs(yawDiff) <= 45) {
+                    state.setInput(Input.MOVE_FORWARD, true);
+                } else if (yawDiff > 45 && yawDiff <= 135) {
+                    state.setInput(Input.MOVE_LEFT, true);
+                } else if (yawDiff < -45 && yawDiff >= -135) {
+                    state.setInput(Input.MOVE_RIGHT, true);
+                } else {
+                    state.setInput(Input.MOVE_BACK, true);
+                }
+            }
+
             // Jump to enter the water and start swimming
             state.setInput(Input.JUMP, true);
             if (ctx.playerFeet().equals(dest)) {
