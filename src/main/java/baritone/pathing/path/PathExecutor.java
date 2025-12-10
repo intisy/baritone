@@ -241,7 +241,21 @@ public class PathExecutor implements IPathExecutor, Helper {
             }
             if (shouldJumpNextTick()) {
                 behavior.baritone.getInputOverrideHandler().setInputForceState(Input.JUMP, true);
-                overrideSprintJumpRotation();
+                
+                Vec3i direction = null;
+                for (int i = 0; i < 5; i++) {
+                    if (pathPosition + i >= path.movements().size()) break;
+                    IMovement m = path.movements().get(pathPosition + i);
+                    if (!(m instanceof MovementTraverse)) break;
+                    if (direction == null) direction = m.getDirection();
+                    else if (!direction.equals(m.getDirection())) break;
+                }
+                
+                if (direction != null) {
+                    float targetYaw = (float) Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
+                    Rotation targetRot = new Rotation(targetYaw, ctx.playerRotations().getPitch());
+                    behavior.baritone.getLookBehavior().updateTarget(targetRot, false);
+                }
             }
             ticksOnCurrent++;
             if (ticksOnCurrent > currentMovementOriginalCostEstimate + Baritone.settings().movementTimeoutTicks.value) {
@@ -649,25 +663,6 @@ public class PathExecutor implements IPathExecutor, Helper {
         return true;
     }
 
-    private void overrideSprintJumpRotation() {
-        int blocksLookingAhead = 0;
-        Vec3i direction = null;
-        for (int i = 0; i < 5; i++) {
-             if (pathPosition + i >= path.movements().size()) break;
-             IMovement m = path.movements().get(pathPosition + i);
-             if (!(m instanceof MovementTraverse)) break;
-             if (direction == null) direction = m.getDirection();
-             else if (!direction.equals(m.getDirection())) break;
-             blocksLookingAhead = i;
-        }
-        
-        if (blocksLookingAhead > 0) {
-            IMovement targetMovement = path.movements().get(pathPosition + blocksLookingAhead);
-            BlockPos targetPos = targetMovement.getDest();
-            Rotation targetRot = RotationUtils.calcRotationFromVec3d(ctx.playerHead(), VecUtils.calculateBlockCenter(ctx.world(), targetPos), ctx.playerRotations());
-            behavior.baritone.getLookBehavior().updateTarget(targetRot, true);
-        }
-    }
 
     private void onChangeInPathPosition() {
         clearKeys();

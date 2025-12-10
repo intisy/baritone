@@ -130,35 +130,50 @@ public abstract class Movement implements IMovement, MovementHelper {
             boolean isSprinting = ctx.player().isSprinting();
 
             if (isShallow) {
-                // In 1 block deep water, just walk on the floor
                 if (dest.y > ctx.playerFeet().getY()) {
                     currentState.setInput(Input.JUMP, true);
                 }
             } else {
-                // In deep water
-                if (Baritone.settings().allowSprintSwimming.value) {
+                double distanceToGoal = Double.MAX_VALUE;
+                if (baritone.getPathingBehavior().getGoal() != null) {
+                    distanceToGoal = Math.sqrt(baritone.getPathingBehavior().getGoal().heuristic(ctx.playerFeet()));
+                }
+
+                if (Baritone.settings().allowSprintSwimming.value && (distanceToGoal > 10 || isSprinting)) {
                     currentState.setInput(Input.SPRINT, true);
-                    
+
                     boolean isLiquidTwoUp = MovementHelper.isLiquid(ctx, ctx.playerFeet().above(2));
+                    double upwardSpeed = ctx.player().getDeltaMovement().y;
 
                     if (isSprinting || isLiquidTwoUp) {
-                        if (dest.y + 0.005 > ctx.playerFeet().getY() && ctx.player().position().y < dest.y + 0.2) {
+                        if (
+                                dest.y + 0.005 > ctx.playerFeet().getY() &&
+                                ctx.player().position().y < dest.y + 0.45 &&
+                                (upwardSpeed < 0.05 || ctx.player().position().y < dest.y)
+                        ) {
                             currentState.setInput(Input.JUMP, true);
                         }
                     }
 
                     double dx = dest.x + 0.5 - ctx.player().position().x;
                     double dz = dest.z + 0.5 - ctx.player().position().z;
-                    float oldYaw = ctx.player().getYRot();
                     float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-                    int supposedYaw = ((int) (targetYaw / 45)) * 45;
 
-                    currentState.setTarget(new MovementState.MovementTarget(
-                            new Rotation((targetYaw + supposedYaw + oldYaw) / 3, 0),
-                            true
-                    ));
-                } else if (ctx.player().position().y < dest.y + 0.6) {
-                    currentState.setInput(Input.JUMP, true);
+                    float currentYaw = ctx.playerRotations().getYaw();
+                    float yawDiff = targetYaw - currentYaw;
+                    while (yawDiff > 180) yawDiff -= 360;
+                    while (yawDiff < -180) yawDiff += 360;
+
+                    if (Math.abs(yawDiff) > 5) {
+                        currentState.setTarget(new MovementState.MovementTarget(
+                                new Rotation(targetYaw, 0),
+                                true
+                        ));
+                    }
+                } else {
+                    if (isLiquidUp || ctx.player().position().y <= dest.y) {
+                        currentState.setInput(Input.JUMP, true);
+                    }
                 }
             }
         }
