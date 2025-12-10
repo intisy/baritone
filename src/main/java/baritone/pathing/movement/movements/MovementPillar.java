@@ -83,6 +83,15 @@ public class MovementPillar extends Movement {
                 return LADDER_UP_ONE_COST; // allow ascending pillars of water, but only if we're already in one
             }
         }
+        if (!MovementHelper.isWater(fromState) && MovementHelper.canWalkThrough(context, x, y, z, fromState)) {
+            srcUp = context.get(x, y + 1, z);
+            if (MovementHelper.isWater(srcUp)) {
+                BlockState toBreakAbove = context.get(x, y + 2, z);
+                if (MovementHelper.isWater(toBreakAbove) || MovementHelper.canWalkThrough(context, x, y + 2, z, toBreakAbove)) {
+                    return LADDER_UP_ONE_COST; // swim up through water above
+                }
+            }
+        }
         double placeCost = 0;
         if (!ladder) {
             // we need to place a block where we started to jump on it
@@ -180,6 +189,21 @@ public class MovementPillar extends Movement {
             if (Math.abs(ctx.player().position().x - destCenter.x) > 0.2 || Math.abs(ctx.player().position().z - destCenter.z) > 0.2) {
                 state.setInput(Input.MOVE_FORWARD, true);
             }
+            if (ctx.playerFeet().equals(dest)) {
+                return state.setStatus(MovementStatus.SUCCESS);
+            }
+            return state;
+        }
+        // Handle swimming up when not fully submerged but water is above (e.g., pressure plate with water above)
+        if (!MovementHelper.isWater(fromDown) && MovementHelper.isWater(ctx, dest)) {
+            // swim up through water above
+            state.setTarget(new MovementState.MovementTarget(RotationUtils.calcRotationFromVec3d(ctx.playerHead(), VecUtils.getBlockPosCenter(dest), ctx.playerRotations()), false));
+            Vec3 destCenter = VecUtils.getBlockPosCenter(dest);
+            if (Math.abs(ctx.player().position().x - destCenter.x) > 0.2 || Math.abs(ctx.player().position().z - destCenter.z) > 0.2) {
+                state.setInput(Input.MOVE_FORWARD, true);
+            }
+            // Jump to enter the water and start swimming
+            state.setInput(Input.JUMP, true);
             if (ctx.playerFeet().equals(dest)) {
                 return state.setStatus(MovementStatus.SUCCESS);
             }
