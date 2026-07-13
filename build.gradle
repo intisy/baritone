@@ -25,6 +25,32 @@
 //   - the whole ':common' tree, which self-configures (the controller ':common' must stay
 //     non-buildable, and the version node needs immediate unimined apply — see
 //     common/build.gradle).
+// --- Per-version constants (Stonecutter) -------------------------------------
+// The active Stonecutter version node (common/versions/<version>) auto-loads its own
+// gradle.properties, so the node's build script reads project.minecraft_version /
+// project.java_version directly. The loaders (fabric/forge/neoforge/tweaker) are NOT
+// Stonecutter nodes and cannot auto-load, and the shared allprojects{} config below also
+// needs the active minecraft_version / java_version. We therefore resolve the ACTIVE
+// version from the controller (common/stonecutter.gradle, the source of truth that the
+// "Set active project to <ver>" task rewrites) and load that version's constants into the
+// root project so every loader reads the active values. A fresh build after an active
+// switch re-resolves these.
+def activeVersionMatcher = (file('common/stonecutter.gradle').text =~ /active\(\s*['"]([^'"]+)['"]\s*\)/)
+if (!activeVersionMatcher.find()) {
+    throw new GradleException("Could not determine the active Stonecutter version from common/stonecutter.gradle")
+}
+def activeVersion = activeVersionMatcher.group(1)
+def activeVersionProps = new Properties()
+file("common/versions/${activeVersion}/gradle.properties").withInputStream { activeVersionProps.load(it) }
+activeVersionProps.each { key, value ->
+    def name = key.toString()
+    // Skip keys already defined at root (e.g. available_loaders is kept in root
+    // gradle.properties for settings.gradle's include loop).
+    if (!rootProject.hasProperty(name)) {
+        rootProject.ext.set(name, value.toString())
+    }
+}
+
 allprojects {
     if (project == rootProject || project.path.startsWith(':common')) {
         return
@@ -51,7 +77,7 @@ allprojects {
     }
     group = rootProject.maven_group
 
-    sourceCompatibility = targetCompatibility = JavaVersion.toVersion(project.java_version)
+    sourceCompatibility = targetCompatibility = JavaVersion.toVersion(rootProject.java_version)
 
     java {
         toolchain {
@@ -116,7 +142,7 @@ allprojects {
     tasks.withType(JavaCompile).configureEach {
         it.options.encoding = "UTF-8"
 
-        def targetVersion = project.java_version.toInteger()
+        def targetVersion = rootProject.java_version.toInteger()
         if (JavaVersion.current().isJava9Compatible()) {
             it.options.release = targetVersion
         }

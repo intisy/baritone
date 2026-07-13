@@ -12,8 +12,12 @@ build/
 classes/
 *.class
 
-# Stonecutter-generated version-node working dirs
-versions/
+# Stonecutter-generated version-node working dirs (scoped: keep tracked per-version
+# gradle.properties and overlay src under common/versions/<ver>/ — only ignore generated
+# output. build/ .gradle/ logs/ are already ignored globally above.)
+common/versions/*/build/
+common/versions/*/.gradle/
+common/versions/*/logs/
 
 /out
 

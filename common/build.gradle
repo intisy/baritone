@@ -103,12 +103,15 @@ dependencies {
 // Apply unimined to main BEFORE wiring the extra source sets, so that the
 // `compileClasspath += main.compileClasspath` copies below already include Minecraft.
 unimined.minecraft(sourceSets.main) {
-    version rootProject.minecraft_version
+    // This is the Stonecutter version node: Stonecutter auto-loads
+    // common/versions/<version>/gradle.properties, so project.minecraft_version /
+    // project.java_version resolve to THIS node's per-version values (and override root).
+    version project.minecraft_version
 
     mappings {
         intermediary()
         mojmap()
-        parchment(rootProject.minecraft_version, "2025.12.20")
+        parchment(project.minecraft_version, "2025.12.20")
     }
 
     runs.off = true

@@ -26,7 +26,9 @@ archivesBaseName = archivesBaseName + "-fabric"
 
 unimined.minecraft {
     fabric {
-        loader project.fabric_version
+        // Per-version loader constant, loaded into root from the active version node
+        // (see build.gradle). Loaders are not Stonecutter nodes so they read it from root.
+        loader rootProject.fabric_version
     }
 }
 
