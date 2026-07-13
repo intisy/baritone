@@ -111,7 +111,7 @@ unimined.minecraft(sourceSets.main) {
     mappings {
         intermediary()
         mojmap()
-        parchment(project.minecraft_version, "2025.12.20")
+        parchment(project.minecraft_version, project.parchment_version)
     }
 
     runs.off = true
