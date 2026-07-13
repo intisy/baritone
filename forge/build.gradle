@@ -22,6 +22,14 @@ plugins {
     id "com.github.johnrengelman.shadow" version "8.0.0"
 }
 
+// Per-version loader scoping: skip this loader entirely when the ACTIVE Stonecutter version's
+// loader set (root build.gradle -> rootProject.active_loaders) does not list it. The root
+// allprojects{} block likewise withholds java/unimined from unscoped loaders, so this early
+// return also avoids referencing the then-absent `unimined` extension. Result: no jar, no error.
+if (!rootProject.active_loaders.contains(project.name)) {
+    return
+}
+
 archivesBaseName = archivesBaseName + "-forge"
 
 unimined.minecraft {

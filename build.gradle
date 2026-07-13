@@ -51,8 +51,23 @@ activeVersionProps.each { key, value ->
     }
 }
 
+// The ACTIVE version's loader set. Root gradle.properties' `available_loaders` is the UNION of
+// every version's loaders (settings.gradle includes that superset so all loader subprojects
+// exist regardless of active version). `active_loaders` is the ACTIVE version's own subset —
+// each loader self-skips (below and in its own build.gradle) when it is not listed, so a version
+// only builds the loaders that work under the unified unimined toolchain.
+rootProject.ext.active_loaders = (activeVersionProps.getProperty('available_loaders') ?: rootProject.available_loaders)
+        .split(',').collect { it.trim() }.findAll { it }
+
 allprojects {
     if (project == rootProject || project.path.startsWith(':common')) {
+        return
+    }
+    // Per-version loader scoping: skip loaders the ACTIVE version does not list. This withholds
+    // the java/unimined config below, so an unscoped loader compiles nothing and produces no jar
+    // (its own build.gradle also early-returns). Keeps e.g. neoforge inert on versions whose
+    // NeoForge cannot configure under this unimined.
+    if (!rootProject.active_loaders.contains(project.name)) {
         return
     }
 
