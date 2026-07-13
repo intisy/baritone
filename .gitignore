@@ -12,6 +12,9 @@ build/
 classes/
 *.class
 
+# Stonecutter-generated version-node working dirs
+versions/
+
 /out
 
 # IntelliJ Files

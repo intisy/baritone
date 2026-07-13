@@ -1,0 +1,25 @@
+// PHASE 1 THROWAWAY STUB — config-proof only, no real common code yet.
+// This script is evaluated for the Stonecutter version node ':common:1.21.11'
+// (the controller ':common' uses common/stonecutter.gradle and stays non-buildable).
+// The node must self-configure unimined: applying it via root allprojects{} does not
+// register on Stonecutter version nodes (evaluation ordering).
+
+apply plugin: 'java'
+apply plugin: "xyz.wagyourtail.unimined"
+
+sourceCompatibility = targetCompatibility = JavaVersion.toVersion(project.java_version)
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(sourceCompatibility.majorVersion.toInteger()))
+    }
+}
+
+unimined.minecraft(sourceSets.main) {
+    version rootProject.minecraft_version
+
+    mappings {
+        intermediary()
+        mojmap()
+        parchment(rootProject.minecraft_version, "2025.12.20")
+    }
+}

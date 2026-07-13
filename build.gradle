@@ -16,6 +16,14 @@
  */
 
 allprojects {
+    // The whole ':common' Stonecutter tree is configured by common/build.gradle
+    // (version node) and common/stonecutter.gradle (controller). Applying the shared
+    // java/unimined config here to the version node does NOT register (Stonecutter
+    // node evaluation ordering), so the node self-configures instead.
+    if (project.path.startsWith(':common')) {
+        return
+    }
+
     apply plugin: 'java'
     apply plugin: "xyz.wagyourtail.unimined"
     apply plugin: "maven-publish"

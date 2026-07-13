@@ -31,6 +31,10 @@ pluginManagement {
             url = 'https://maven.fabricmc.net/'
         }
         mavenCentral()
+        maven {
+            name = 'KikugieMaven'
+            url = 'https://maven.kikugie.dev/releases'
+        }
         gradlePluginPortal() {
             content {
                 excludeGroup "org.apache.logging.log4j"
@@ -41,9 +45,19 @@ pluginManagement {
 
 plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+    id 'dev.kikugie.stonecutter' version '0.7.11'
 }
 
 rootProject.name = 'baritone'
+
+include('common')
+
+stonecutter {
+    create(project(':common')) {
+        versions('1.21.11')
+        vcsVersion = '1.21.11'
+    }
+}
 
 for (platform in available_loaders.split(",")) {
        include(platform)
