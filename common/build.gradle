@@ -1,19 +1,107 @@
-// PHASE 1 THROWAWAY STUB — config-proof only, no real common code yet.
-// This script is evaluated for the Stonecutter version node ':common:1.21.11'
+/*
+ * This file is part of Baritone.
+ *
+ * Baritone is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Baritone is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// This build script is evaluated for the Stonecutter version node ':common:<version>'
 // (the controller ':common' uses common/stonecutter.gradle and stays non-buildable).
-// The node must self-configure unimined: applying it via root allprojects{} does not
-// register on Stonecutter version nodes (evaluation ordering).
+// Stonecutter automatically adds the controller's src/<sourceSet> dirs (common/src/...)
+// to each source set, plus a per-version overlay under common/versions/<version>/src.
+//
+// unimined MUST be applied with IMMEDIATE apply (unimined.minecraft(sourceSets.main){}),
+// NOT the lateApply overload (..., true): Stonecutter version nodes swallow unimined's
+// deferred afterEvaluate hook, which otherwise fails with
+// "minecraft config never applied for source set 'main'".
 
 apply plugin: 'java'
 apply plugin: "xyz.wagyourtail.unimined"
+apply plugin: "maven-publish"
+
+archivesBaseName = rootProject.archives_base_name + "-common"
+
+def vers = ""
+try {
+    vers = 'git describe --always --tags --first-parent --dirty'.execute().text.trim()
+} catch (Exception e) {
+    println "Version detection failed: " + e
+}
+if (!vers.startsWith("v")) {
+    println "using version number: " + rootProject.mod_version
+    version = rootProject.mod_version
+} else {
+    version = vers.substring(1)
+    println "Detected version " + version
+}
+group = rootProject.maven_group
 
 sourceCompatibility = targetCompatibility = JavaVersion.toVersion(project.java_version)
+
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(sourceCompatibility.majorVersion.toInteger()))
     }
 }
 
+repositories {
+    maven {
+        url = "https://files.minecraftforge.net/maven/"
+    }
+    maven {
+        name = 'spongepowered-repo'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+    }
+    maven {
+        name = 'fabric-maven'
+        url = 'https://maven.fabricmc.net/'
+    }
+    maven {
+        name = 'impactdevelopment-repo'
+        url = 'https://impactdevelopment.github.io/maven/'
+    }
+    maven {
+        name = "ldtteam"
+        url = "https://maven.parchmentmc.net/"
+    }
+    // for the newer version of launchwrapper
+    maven {
+        name = "multimc-maven"
+        url = "https://files.multimc.org/maven/"
+        metadataSources {
+            artifact()
+        }
+    }
+    mavenCentral()
+    maven {
+        name = 'babbaj-repo'
+        url = 'https://babbaj.github.io/maven/'
+    }
+}
+
+dependencies {
+    compileOnly "org.spongepowered:mixin:${project.mixin_version}"
+    compileOnly "org.ow2.asm:asm:${project.asm_version}"
+
+    implementation "dev.babbaj:nether-pathfinder:${project.nether_pathfinder_version}"
+
+    implementation 'com.google.code.findbugs:jsr305:3.0.2'
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+// Apply unimined to main BEFORE wiring the extra source sets, so that the
+// `compileClasspath += main.compileClasspath` copies below already include Minecraft.
 unimined.minecraft(sourceSets.main) {
     version rootProject.minecraft_version
 
@@ -22,4 +110,55 @@ unimined.minecraft(sourceSets.main) {
         mojmap()
         parchment(rootProject.minecraft_version, "2025.12.20")
     }
+
+    runs.off = true
+    defaultRemapJar = false
+}
+
+sourceSets {
+    api {
+        compileClasspath += main.compileClasspath
+        runtimeClasspath += main.runtimeClasspath
+    }
+    main {
+        compileClasspath += api.output
+        runtimeClasspath += api.output
+    }
+    test {
+        compileClasspath += main.compileClasspath + main.runtimeClasspath + main.output
+        runtimeClasspath += main.compileClasspath + main.runtimeClasspath + main.output
+    }
+    launch {
+        compileClasspath += main.compileClasspath + main.runtimeClasspath + main.output
+        runtimeClasspath += main.compileClasspath + main.runtimeClasspath + main.output
+    }
+    schematica_api {
+        compileClasspath += main.compileClasspath
+        runtimeClasspath += main.runtimeClasspath
+    }
+    main {
+        compileClasspath += schematica_api.output
+        runtimeClasspath += schematica_api.output
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+
+    def targetVersion = project.java_version.toInteger()
+    if (JavaVersion.current().isJava9Compatible()) {
+        it.options.release = targetVersion
+    }
+}
+
+jar {
+    from sourceSets.main.output, sourceSets.launch.output, sourceSets.api.output
+}
+
+javadoc {
+    options.addStringOption('Xwerror', '-quiet') // makes the build fail on travis when there is a javadoc error
+    options.linkSource true
+    options.encoding "UTF-8" // allow emoji in comments :^)
+    source = sourceSets.api.allJava
+    classpath += sourceSets.api.compileClasspath
 }

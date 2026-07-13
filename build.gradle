@@ -15,12 +15,18 @@
  * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+// Root is now a pure aggregator. The shared baritone code lives in the Stonecutter
+// version node ':common:<version>' (see common/build.gradle + common/stonecutter.gradle);
+// the loaders (fabric/forge/neoforge/tweaker) bundle the ACTIVE ':common' node's outputs.
+//
+// This allprojects{} block supplies the shared java/unimined config to the LOADERS only.
+// It skips:
+//   - rootProject itself (aggregator, holds no code / no source sets), and
+//   - the whole ':common' tree, which self-configures (the controller ':common' must stay
+//     non-buildable, and the version node needs immediate unimined apply — see
+//     common/build.gradle).
 allprojects {
-    // The whole ':common' Stonecutter tree is configured by common/build.gradle
-    // (version node) and common/stonecutter.gradle (controller). Applying the shared
-    // java/unimined config here to the version node does NOT register (Stonecutter
-    // node evaluation ordering), so the node self-configures instead.
-    if (project.path.startsWith(':common')) {
+    if (project == rootProject || project.path.startsWith(':common')) {
         return
     }
 
@@ -115,54 +121,4 @@ allprojects {
             it.options.release = targetVersion
         }
     }
-}
-
-unimined.minecraft {
-    runs.off = true
-    defaultRemapJar = false
-}
-
-archivesBaseName = archivesBaseName + "-common"
-
-sourceSets {
-    api {
-        compileClasspath += main.compileClasspath
-        runtimeClasspath += main.runtimeClasspath
-    }
-    main {
-        compileClasspath += api.output
-        runtimeClasspath += api.output
-    }
-    test {
-        compileClasspath += main.compileClasspath + main.runtimeClasspath + main.output
-        runtimeClasspath += main.compileClasspath + main.runtimeClasspath + main.output
-    }
-    launch {
-        compileClasspath += main.compileClasspath + main.runtimeClasspath + main.output
-        runtimeClasspath += main.compileClasspath + main.runtimeClasspath + main.output
-    }
-    schematica_api {
-        compileClasspath += main.compileClasspath
-        runtimeClasspath += main.runtimeClasspath
-    }
-    main {
-        compileClasspath += schematica_api.output
-        runtimeClasspath += schematica_api.output
-    }
-}
-
-dependencies {
-    testImplementation 'junit:junit:4.13.2'
-}
-
-jar {
-    from sourceSets.main.output, sourceSets.launch.output, sourceSets.api.output
-}
-
-javadoc {
-    options.addStringOption('Xwerror', '-quiet') // makes the build fail on travis when there is a javadoc error
-    options.linkSource true
-    options.encoding "UTF-8" // allow emoji in comments :^)
-    source = sourceSets.api.allJava
-    classpath += sourceSets.api.compileClasspath
 }
