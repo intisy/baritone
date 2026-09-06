@@ -79,13 +79,27 @@ public interface IRenderer {
     }
 
     static BufferBuilder startLines(Color color, float alpha, float lineWidth) {
+        applyLineWidth(lineWidth);
+        return startLines(color, alpha);
+    }
+
+    static BufferBuilder startLines(Color color, float alpha) {
         glColor(color, alpha);
-        RenderSystem.lineWidth(lineWidth);
         return tessellator.begin(VertexFormat.Mode.LINES, DefaultVertexFormat.POSITION_COLOR_NORMAL);
     }
 
-    static BufferBuilder startLines(Color color, float lineWidth) {
-        return startLines(color, .4f, lineWidth);
+    static BufferBuilder startLines(Color color) {
+        return startLines(color, .4f);
+    }
+
+    /**
+     * @implNote 1.21.10 has no per-vertex line width attribute: {@link RenderSystem#lineWidth} is
+     *           global state read at draw time, so every line in one batch renders at the last
+     *           width set. Each call site uses a single width per batch, which keeps this
+     *           equivalent to the per-vertex width 1.21.11 threads through instead.
+     */
+    static void applyLineWidth(float lineWidth) {
+        RenderSystem.lineWidth(lineWidth);
     }
 
     static void endLines(BufferBuilder bufferBuilder, boolean ignoredDepth) {
@@ -162,6 +176,21 @@ public interface IRenderer {
         double vpY = renderManager.renderPosY();
         double vpZ = renderManager.renderPosZ();
         emitLine(bufferBuilder, stack, start.x - vpX, start.y - vpY, start.z - vpZ, end.x - vpX, end.y - vpY, end.z - vpZ);
+    }
+
+    static void emitLine(BufferBuilder bufferBuilder, PoseStack stack, Vec3 start, Vec3 end, float lineWidth) {
+        applyLineWidth(lineWidth);
+        emitLine(bufferBuilder, stack, start, end);
+    }
+
+    static void emitAABB(BufferBuilder bufferBuilder, PoseStack stack, AABB aabb, float lineWidth) {
+        applyLineWidth(lineWidth);
+        emitAABB(bufferBuilder, stack, aabb);
+    }
+
+    static void emitAABB(BufferBuilder bufferBuilder, PoseStack stack, AABB aabb, double expand, float lineWidth) {
+        applyLineWidth(lineWidth);
+        emitAABB(bufferBuilder, stack, aabb, expand);
     }
 
 }
