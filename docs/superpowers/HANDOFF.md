@@ -129,3 +129,45 @@ compile, Fabric carries none of Nylium's three limitations, and a two-version Fa
 the discrimination case Nylium's own smoke matrix uses to prove dispatch rather than mere loading.
 It also gives Nylium the second real consumer its handoff wants before retiring the testmod's
 hand-rolled `universalJar`.
+
+## Branch model, and what must NOT be deleted yet
+
+**Adopted 2026-09-06.** This fork now follows the global two-branch rule: `main` (the default
+branch) and `development`, both currently at the same commit, with feature branches off
+`development` for anything else. The old milestone branch `m2-mc1.21.10` was renamed to
+`development`. `main` is the Nylium-based single-jar line, not a legacy per-version line.
+
+`origin` is `intisy/baritone`. `upstream` is `cabaletta/baritone` and must never be pushed to.
+Note that the local `restructure-master` branch tracks **upstream**, so a careless `git push` on
+it aims at the wrong repository.
+
+**The remaining per-version branches are scheduled for deletion, but deleting them now would
+destroy work that has not been folded in yet.** `origin` carries 20 per-version branches
+(`1.13.2` through `1.21.10`) while `development` carries only two Stonecutter nodes, `1.21.10` and
+`1.21.11`. Measured, not assumed:
+
+| Branch | Java files | Safe to delete? |
+| --- | --- | --- |
+| `1.21.10` | folded into a node | yes, content is in `development` |
+| `1.21.4` | docs only | yes, both doc blobs are byte-identical to `development`'s |
+| `1.16.5` | 340 | **NO** |
+| `1.17.1` | 316 | **NO** |
+| `1.18.2` | 334 | **NO** |
+| the other 15 | not yet measured | **NO** |
+
+`git merge-base --is-ancestor origin/1.16.5 development` returns false, and that branch holds its
+own `baritone/utils/IRenderer.java` and `PathRenderer.java`. Those per-version overlays are exactly
+what the 1.21.10 port needed, and they are the input for every version still to be folded in. The
+2026-07-13 plan's requirement to port 1.16.5, 1.17.1 and 1.18.2 onto unimined+Mojmap is still live.
+
+**So: delete a version branch only once its version exists as a Stonecutter node under
+`common/versions/`, and check `--is-ancestor` first.** Deleting them as a batch before the collapse
+finishes would leave 18 targets with no source to fold.
+
+## Known rule violation, not yet fixed
+
+`development` still carries a hand-written `README.md` inherited from upstream. The global rule is
+that READMEs are generated onto the default branch only, and a development branch carries the
+generator's template instead. Migrating means adding `CONTENT.md` plus `.github/docs-config.yml`
+and dropping `README.md` from `development`, the same shape Nylium uses. Left alone here because it
+removes upstream's README, which is the owner's call.
