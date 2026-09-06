@@ -146,14 +146,20 @@ destroy work that has not been folded in yet.** `origin` carries 20 per-version 
 (`1.13.2` through `1.21.10`) while `development` carries only two Stonecutter nodes, `1.21.10` and
 `1.21.11`. Measured, not assumed:
 
-| Branch | Java files | Safe to delete? |
-| --- | --- | --- |
-| `1.21.10` | folded into a node | yes, content is in `development` |
-| `1.21.4` | docs only | yes, both doc blobs are byte-identical to `development`'s |
-| `1.16.5` | 340 | **NO** |
-| `1.17.1` | 316 | **NO** |
-| `1.18.2` | 334 | **NO** |
-| the other 15 | not yet measured | **NO** |
+| Branch | Java files | Ancestor of `development`? | Safe to delete? |
+| --- | --- | --- | --- |
+| `1.21.10` | 363 | yes | **deleted 2026-09-06** |
+| `1.21.4` | 360 | no | **NO** |
+| `1.16.5` | 340 | no | **NO** |
+| `1.17.1` | 316 | no | **NO** |
+| `1.18.2` | 334 | no | **NO** |
+| the other 14 | not yet measured | not checked | **NO** |
+
+**The only sound test is `git merge-base --is-ancestor origin/<branch> development`.** `1.21.4` was
+briefly and wrongly marked safe here on the grounds that its four unpushed local commits were
+docs-only with byte-identical blobs. That was a conflation: those four commits are redundant, but
+the branch itself still carries 360 Java files of 1.21.4 source that exists nowhere else. Judge the
+branch, never the commits sitting on top of it.
 
 `git merge-base --is-ancestor origin/1.16.5 development` returns false, and that branch holds its
 own `baritone/utils/IRenderer.java` and `PathRenderer.java`. Those per-version overlays are exactly
