@@ -3,3 +3,39 @@ plugins {
 }
 
 stonecutter.active('1.21.11')
+
+// Per-version global source replacements (Stonecutter 0.7.11).
+// The `parameters {}` closure is evaluated once PER version node; its delegate is a
+// StonecutterBuildProperties (Named after the node version, e.g. "1.21.10") and exposes
+// `replacements` (regex/string builders) plus `eval(version, predicate...)` for gating.
+// These port the shared 1.21.11-authored source down to older Minecraft mappings WITHOUT
+// editing the shared files. 1.21.11 stays untouched (gate excludes it).
+stonecutter.parameters { params ->
+    def ver = params.node.metadata.version
+    def isPre = params.eval(ver, "<1.21.11")
+    println "STONECUTTER-PARAMS node=${ver} pre1_21_11=${isPre}"
+
+    // ---- Minecraft < 1.21.11 (currently only 1.21.10) ----
+    if (isPre) {
+        params.replacements { r ->
+            // #1 net.minecraft.resources.Identifier -> ResourceLocation (import + every use-site).
+            // Word-boundary so the lowercase `identifier` field/method is never touched.
+            r.regex { b -> b.direction.set(true); b.replace('\\bIdentifier\\b', 'ResourceLocation') }
+
+            // #2 ResourceKey.identifier() -> .location() (WorldProvider dimension id).
+            // Scoped to dimension().identifier() so nothing else is caught.
+            r.string { b -> b.direction.set(true); b.replace('dimension().identifier()', 'dimension().location()') }
+
+            // #3 camera.position() -> camera.getPosition() (MixinEntityRenderManager, 3 sites).
+            // Literal `camera.position()` only, so overlay `player().position()` is untouched.
+            r.string { b -> b.direction.set(true); b.replace('camera.position()', 'camera.getPosition()') }
+
+            // #4 net.minecraft.util.Util -> net.minecraft.Util (ExampleBaritoneControl import).
+            r.string { b -> b.direction.set(true); b.replace('import net.minecraft.util.Util;', 'import net.minecraft.Util;') }
+
+            // #5 monster.spider.Spider / monster.zombie.ZombifiedPiglin flattened (Avoidance imports).
+            r.string { b -> b.direction.set(true); b.replace('monster.spider.Spider', 'monster.Spider') }
+            r.string { b -> b.direction.set(true); b.replace('monster.zombie.ZombifiedPiglin', 'monster.ZombifiedPiglin') }
+        }
+    }
+}
