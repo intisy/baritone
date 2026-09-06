@@ -41,34 +41,40 @@ them bite specific Baritone targets:
 So SP-3 can ship most of the matrix now and must not promise 1.16.5 Forge or any NeoForge jar until
 those two Nylium items land.
 
-## Uncommitted work in this tree
+## State of the Stonecutter version dimension
 
-`common/stonecutter.gradle` carries roughly 36 uncommitted lines: a `stonecutter.parameters {}`
-block with six per-version source replacements porting 1.21.11-authored source down to 1.21.10
-mappings (Identifier to ResourceLocation, ResourceKey.identifier() to location(), camera.position()
-to getPosition(), the Util and monster-class package moves).
+**Both version nodes compile as of 2026-09-06.** `./gradlew :common:1.21.10:build` and
+`:common:1.21.11:build` are each green. Two pieces got them there.
 
-**Verified 2026-09-06. The block itself works; the node still does not compile, for an unrelated
-reason.** All six replacements land in Stonecutter's generated sources, and the version gate is
-correct: the block evaluates once per node and reports `pre1_21_11=true` for 1.21.10 and `false`
-for 1.21.11, so the shared source is untouched for 1.21.11.
+**1. `common/stonecutter.gradle` carries a `stonecutter.parameters {}` block** with six per-version
+source replacements porting the 1.21.11-authored shared source down to 1.21.10 mappings (Identifier
+to ResourceLocation, ResourceKey.identifier() to location(), camera.position() to getPosition(), the
+Util and monster-class package moves). The version gate is correct: the block evaluates once per
+node and reports `pre1_21_11=true` for 1.21.10 and `false` for 1.21.11, so 1.21.11 is untouched.
 
-Two things to know before re-checking that:
+Note that **Stonecutter generates five source sets here** (`api`, `launch`, `main`,
+`schematica_api`, `test`). The `camera.position()` replacement only ever appears in `launch`.
+Grepping the generated `main` tree alone makes a working replacement look dead.
 
-- **Stonecutter generates five source sets here** (`api`, `launch`, `main`, `schematica_api`,
-  `test`). The `camera.position()` replacement only ever appears in `launch`. Grepping the
-  generated `main` tree alone makes a working replacement look dead.
-- **`:common:1.21.10:build` fails with 8 errors that no source replacement can fix.** `IRenderer`
-  is a per-version overlay and the two copies have divergent signatures: 1.21.11 threads
-  `lineWidth` through as a parameter, the 1.21.10 overlay is the older upstream shape that does
-  not. The arities differ, so this needs the 1.21.10 overlay ported to 1.21.11's signature set,
-  implemented against 1.21.10's render API. Three overloads are missing:
+**2. The 1.21.10 `IRenderer` overlay was converged on 1.21.11's signature set.** This could not be
+done with a source replacement, and the reason is worth keeping:
 
-  | File | Line(s) | Missing overload |
-  | --- | --- | --- |
-  | `ElytraBehavior.java` | 427, 434, 441 | `startLines(Color)` |
-  | `ElytraBehavior.java` | 429, 436, 446 | `emitLine(BufferBuilder, PoseStack, Vec3, Vec3, float)` |
-  | `GuiClick.java` | 134 | `startLines(Color)` |
-  | `SelectionRenderer.java` | 35 | `emitAABB(BufferBuilder, PoseStack, AABB, double, float)` |
+- 1.21.11 carries line width as a **per-vertex attribute**
+  (`DefaultVertexFormat.POSITION_COLOR_NORMAL_LINE_WIDTH` plus `setLineWidth` per vertex), so width
+  is passed at emit time. 1.21.10 has no such attribute and sets width as **global GL state** via
+  `RenderSystem.lineWidth`, read at draw time. The arities differ, so no textual rewrite bridges
+  them.
+- Worse, `startLines(Color, float)` **already existed in both and meant different things**: alpha on
+  1.21.11, line width on 1.21.10. Both compile. The shared source calls it with opacity
+  (`SelCommand`, `SelectionRenderer`) while 1.21.10's own `PathRenderer` called it with a width, so
+  the same signature had two meanings in one compilation unit. Adding overloads cannot fix that.
 
-So the block is safe to commit on its own merit, but committing it does not make the node green.
+The fix converges 1.21.10's public shape on 1.21.11's: `startLines(Color, float)` now means alpha,
+`startLines(Color)` was added, and the width-taking `emitLine`/`emitAABB` overloads route through a
+named `applyLineWidth` helper whose `@implNote` records that width is per-batch on this version.
+1.21.10's `PathRenderer` moved to the explicit 3-arg `startLines(color, .4f, width)`, preserving its
+previous alpha exactly.
+
+**Every call site uses a single line width per batch**, which is what makes the global-state
+approach equivalent to 1.21.11's per-vertex one. Check that invariant still holds before adding a
+batch that mixes widths on 1.21.10: it would silently render every line at the last width set.
