@@ -78,3 +78,54 @@ previous alpha exactly.
 **Every call site uses a single line width per batch**, which is what makes the global-state
 approach equivalent to 1.21.11's per-vertex one. Check that invariant still holds before adding a
 batch that mixes widths on 1.21.10: it would silently render every line at the last width set.
+
+## SP-3 blocker, and the spike that answered it
+
+**Spiked 2026-09-06. Throwaway edits reverted; the tree is clean and both nodes still build.**
+
+Nylium dispatches **pre-remapped** modules, so SP-3's required input is one already-built loader jar
+per Minecraft version. Baritone cannot currently produce that in a single invocation.
+
+**Why.** Per-node *common* jars are fine: `:common:1.21.10:build` works while `1.21.11` is active.
+But the loader subprojects bind to the ACTIVE version at configuration time in four places, so one
+invocation yields one version's loader jars:
+
+- `rootProject.active_loaders` (the self-skip guard at the top of each loader script)
+- `rootProject.fabric_version` / `forge_version` / `neoforge_version`
+- `def commonNode = project(":common:${project(':common').stonecutter.current.version}")`
+- unimined's Minecraft version, applied to loaders from root `allprojects {}`
+
+Root `build.gradle` even regex-parses `common/stonecutter.gradle` for `active(...)` and loads that
+node's `gradle.properties` into root `ext`. That whole mechanism exists **only** because loaders are
+not Stonecutter nodes, and making them nodes removes the need for it.
+
+**The fix is to make each loader a Stonecutter-versioned project**, so `:fabric:1.21.10` and
+`:fabric:1.21.11` coexist and each reads its own node `gradle.properties`. Four things the spike
+established, so nobody has to rediscover them:
+
+1. `stonecutter { create(project(':common'), project(':fabric')) { versions(...) } }` is **not**
+   valid and fails settings evaluation with `No versions have been registered`. The multi-project
+   form is a `shared { versions(...); vcsVersion = ... }` block followed by one bare
+   `create(project(':x'))` per project. That form evaluates successfully.
+2. Loader `include(...)` calls must move **above** the `stonecutter { }` block, since `create()`
+   needs the project to exist.
+3. `create()` **auto-generates the controller script** (it wrote `fabric/stonecutter.gradle.kts`
+   containing `stonecutter active "1.21.11"`). Expect it; do not hand-write it. As with `:common`,
+   the controller takes `stonecutter.gradle` and `fabric/build.gradle` becomes the PER-NODE script.
+4. The next failure after that is `minecraft config never applied for source set 'main'` on
+   `:fabric`. This is the gotcha already documented at the top of `common/build.gradle`: a
+   Stonecutter version node swallows unimined's deferred `afterEvaluate`, so unimined must be
+   applied **immediately** as `unimined.minecraft(sourceSets.main) { }`, never the lateApply
+   overload. Each loader script needs that change.
+
+Remaining design work, which is why this stopped at the spike rather than landing half of it: each
+`:fabric:<version>` node must depend on `:common:<the same version>` instead of the active one, and
+the per-node `available_loaders` subset has to replace the current `active_loaders` self-skip guard
+now that "active" stops being a global. Root `build.gradle`'s active-version parsing should then be
+deleted rather than adapted.
+
+**Recommended first slice once that lands:** Fabric only, 1.21.10 plus 1.21.11. Both nodes already
+compile, Fabric carries none of Nylium's three limitations, and a two-version Fabric pair is exactly
+the discrimination case Nylium's own smoke matrix uses to prove dispatch rather than mere loading.
+It also gives Nylium the second real consumer its handoff wants before retiring the testmod's
+hand-rolled `universalJar`.
