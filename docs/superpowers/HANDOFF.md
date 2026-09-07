@@ -78,7 +78,18 @@ uncompressed) came out *larger* than the two compressed jars combined; that is a
 comparing uncompressed blob storage to zip-deflated jars, not a sign dedupe does not work, since a
 real universal jar re-compresses the deduped blobs the same way (the conformance mod's own jar
 measurement, 24.8% smaller deduped versus undeduped, both compressed identically, is the fair
-comparison). **Caveat carried from the original measurement below: 1.21.10 and 1.21.11 are adjacent
+comparison).
+
+**The headline figure, the one that directly answers "how much smaller is the jar": 33.7%
+smaller, measured on this repo's own two node jars.** A throwaway two-module consumer project
+(deleted after measuring, built under a system temp directory, never committed) pointed the
+published Nylium plugin straight at Baritone's two built `common` node jars and built the same
+`nylium { }` declaration twice, once with `dedupe = false` and once with dedupe on, both producing
+a real zip-compressed universal jar the same way. Undeduped: 1,594,345 bytes. Deduped: 1,057,001
+bytes, carrying the same 494 distinct blobs measured above. Difference: 537,344 bytes, 33.7%
+smaller. Both jars are compressed identically, so unlike the raw object-store number above, this
+comparison is apples to apples, and it is the number that directly answers the duplication question
+the owner asked. **Caveat carried from the original measurement: 1.21.10 and 1.21.11 are adjacent
 versions, so this ratio is a best case; a distant pair such as 1.16.5 against 1.21.11 would show
 substantially less duplicate content and a correspondingly smaller win.**
 
