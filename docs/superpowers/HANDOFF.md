@@ -27,8 +27,8 @@ with the fork's 8 custom features intact.
 
 ## How Nylium's known limits land on this repo's 18 targets
 
-Nylium's three limitations are recorded with bytecode evidence in its kernel design spec. Two of
-them bite specific Baritone targets:
+Nylium's kernel design spec now records **four** known limitations with bytecode evidence, not
+three. Three of them bite specific Baritone targets:
 
 - **1.16.5 Forge is blocked.** It is the only target in the ModLauncher 8 range (Forge 1.13 to
   1.16), where Nylium dispatches but cannot yet reach Minecraft classes. 1.16.5 Fabric and its
@@ -36,10 +36,72 @@ them bite specific Baritone targets:
 - **NeoForge is blocked on 10 targets** (1.20.4 and every 1.21.x) until Nylium SP-1b. NeoForge turned
   out to share no infrastructure with Forge: it ships zero ModLauncher classes and needs its own
   bootstrap.
+- **LaunchWrapper is now blocked on every target in its range, Forge 1.7.10 through 1.12.2.**
+  Found 2026-09-06, previously undocumented, and more serious than the other three: dispatch
+  succeeds and the server then crashes. `NyliumBootTransformer` bootstraps Mixin from inside its own
+  `transform()` call, and Mixin's own init registers a new transformer into the list LaunchWrapper's
+  class loader is currently iterating, which throws `ConcurrentModificationException` on
+  LaunchWrapper's own subsequent load of `net.minecraft.server.MinecraftServer`. This is independent
+  of what a module does (reproduces with a module whose entrypoint only writes a marker file), and
+  Nylium's own smoke harness structurally could not see it before now: it force-kills the server the
+  instant a module's marker file appears, and the marker is written before this crash, so every
+  LaunchWrapper smoke run in Nylium's history had been green over a server that goes on to die. This
+  repo's earlier note above ("1.16.5 Fabric and its launchwrapper tweaker are unaffected") is now
+  wrong for the launchwrapper case: LaunchWrapper is not a viable route to any Forge 1.7.10-1.12.2
+  target until Nylium fixes this, which is its own spike, not yet started. See Nylium's kernel design
+  spec and its content-addressed dedupe design spec for the full stack and reasoning.
 - Everything else, Fabric and Forge 1.17+, is unblocked today.
 
-So SP-3 can ship most of the matrix now and must not promise 1.16.5 Forge or any NeoForge jar until
-those two Nylium items land.
+So SP-3 can ship most of the matrix now and must not promise 1.16.5 Forge, any NeoForge jar, or any
+Forge 1.7.10-1.12.2 (LaunchWrapper) jar until those Nylium items land.
+
+## Per-version duplication: solved by Nylium, measured on this repo's own bytecode
+
+**Nylium's SP-2b shipped content-addressed dedupe 2026-09-06** and it is done, not merely designed.
+Nylium's Gradle plugin now deduplicates entries across a mod's module jars by default: every
+distinct entry is stored once inside the universal jar, each module becomes a small index, and the
+kernel rebuilds a real jar into its extraction cache on first launch. `nylium { dedupe = false }` is
+an escape hatch back to whole, undeduped module jars. This does not by itself unblock SP-3 (see
+below), but it is the fix for the duplication problem this handoff previously recorded as
+"raised by the owner... and it is the next thing to fix" with no design chosen; a design is now
+chosen, implemented and measured.
+
+**Measured on this repo's own bytecode as part of Nylium's Task 10** (Nylium's
+`docs/superpowers/sdd/2026-09-06-nylium-content-addressed-dedupe/task-10-report.md`, and the design
+spec's "Measured result" section): both `:common:1.21.10` and `:common:1.21.11` were built for real
+and their jars measured directly. Combined jar size 1,671,373 bytes (835,252 plus 836,121), 1,067
+total entries (533 plus 534, including 66 directory entries per jar that never produce a blob). The
+apples-to-apples entry-count ratio: 494 distinct blobs against 1,067 entries, meaning 46.3% of
+entries are unique content and 53.7% collapse to a shared blob (52.8% unique when restricted to the
+935 file entries, excluding directories). The raw object-store byte total (1,961,552 bytes,
+uncompressed) came out *larger* than the two compressed jars combined; that is an artifact of
+comparing uncompressed blob storage to zip-deflated jars, not a sign dedupe does not work, since a
+real universal jar re-compresses the deduped blobs the same way (the conformance mod's own jar
+measurement, 24.8% smaller deduped versus undeduped, both compressed identically, is the fair
+comparison). **Caveat carried from the original measurement below: 1.21.10 and 1.21.11 are adjacent
+versions, so this ratio is a best case; a distant pair such as 1.16.5 against 1.21.11 would show
+substantially less duplicate content and a correspondingly smaller win.**
+
+**SP-3's own blocker is unchanged by any of this.** Dedupe fixes what happens to duplicate bytecode
+once Baritone can produce one pre-remapped module jar per Minecraft version per invocation; it does
+not address the reason Baritone cannot do that yet, which is that loaders are not Stonecutter
+nodes. See "SP-3 blocker, and the spike that answered it" below; that spike and its remaining design
+work stand exactly as recorded.
+
+**The constant-folding trap found in Nylium's conformance mod applies directly to this repo's own
+shared-source-plus-Stonecutter-overlay layout.** A shared class that reads a per-version
+`public static final` constant from a per-version overlay class gets that constant inlined by
+`javac` at the shared class's own compile time (JLS 4.12.4), not resolved per node at runtime. In
+Nylium's conformance mod this meant a shared entrypoint compiled once against an identity stub
+silently baked the stub's value into every module, even though the stub was never packaged; "the
+stub class is never shipped" was true and did not prevent the leak, because it is the constant's
+*value*, not the stub's class file, that leaks. This repo's `common` source set is exactly this
+shape: shared source compiled once per Stonecutter node, with per-node overlay files (see
+`IRenderer`'s convergence work above) providing the pieces that differ. Any future shared class in
+`common` that reads a `public static final` field from a per-version overlay class is exposed to
+this same trap; the fix, proven in the conformance mod, is to expose such per-version values through
+methods, never through constants, since a method call resolves against whichever class the node
+actually compiled against and cannot be folded.
 
 ## State of the Stonecutter version dimension
 
