@@ -277,22 +277,28 @@ call, not a side effect of this work.
 
 ### How the conventions refactor was verified
 
-Not by the full `clean build` jar-set diff the plan asked for; that was killed three times by
-memory pressure. Two cheaper checks cover the same ground, and the difference is worth knowing:
+A full from-clean rebuild, run per node rather than as one invocation, because a single whole-build
+invocation does not fit in this machine's memory (see above).
 
-1. Every node assembled individually, and the produced jar set is identical to the pre-refactor set,
-   21 for 21, once the `git describe` version is normalised out. Normalising is necessary because
-   the version string changes with every commit, so raw filenames never compare equal across a
-   commit boundary.
-2. `compType` and `archivesBaseName` were read off every `proguard` and `createDist` task at
-   configuration time through an init script. `BaritoneGradleTask` derives all four dist filenames
-   from the ROOT `archives_base_name` plus `compType`, so `compType` alone determines them. All
-   seven nodes matched, including tweaker's `archivesBaseName=baritone` with `compType=null`.
+1. Every `build` directory under `common/versions/*`, the four loaders' `versions/*`, and
+   `universal/` was deleted outright, then each of the seven loader nodes was built with
+   `:<loader>:<version>:build --configure-on-demand`. All seven green, and `build` rather than
+   `assemble` means **proguard and createDist really executed**.
+2. The resulting jar set is identical to the pre-refactor set, **42 for 42**, once the
+   `git describe` version is normalised out. Normalising is necessary because that version string
+   changes with every commit, so raw filenames never compare equal across a commit boundary.
+3. Dist filenames confirm the hoisted `compType` per loader:
+   `baritone-api-fabric-<ver>.jar`, `-forge-`, `-neoforge-`, and for tweaker the unsuffixed
+   `baritone-api-<ver>.jar`. That unsuffixed case is the one the refactor could most easily have
+   broken, since tweaker is the only loader with a null `compType`.
+4. The universal jar rebuilt from clean is **byte-identical** to the pre-clean one: 3,991,169 bytes,
+   1043 object-store blobs, 4 module indexes.
 
-What this does NOT prove: proguard was not re-executed end to end after the refactor. The refactor
-changed only where those tasks are registered and what `compType` they receive, which is exactly
-what check 2 covers, but a full `clean build` on a machine with free memory is still worth running
-once.
+The one thing still unverified post-refactor: whether all nine nodes CONFIGURE in a single
+invocation. That was green before the refactor (a 10 minute `./gradlew build`), and
+`./gradlew projects` lists the full tree after it, but the whole-build single invocation could not
+be re-run here for memory reasons. Nothing in the refactor touches project registration, so the
+risk is low, but it is not zero and it is worth one run on a machine with free memory.
 
 ### Still open
 

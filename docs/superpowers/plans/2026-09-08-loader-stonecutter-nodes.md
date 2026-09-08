@@ -845,13 +845,16 @@ Recorded 2026-09-08. The plan above is left as written; these are what actually 
    and the four `if (!loaderEnabled) return` lines are deleted. This also means the plan's
    `available_loaders` gate in the conventions script, Task 3 Step 3 item 3, does not exist.
 
-7. **Task 4's acceptance was met differently.** The plan's `clean build` jar-set diff was killed
-   three times by system memory pressure, because the conversion doubled the number of unimined
-   applications configured in one pass. Substituted: a per-node `assemble` sweep under
-   `--configure-on-demand`, whose jar set matches the pre-refactor set 21 for 21 once the
-   `git describe` version is normalised out, plus an init script reading `compType` and
-   `archivesBaseName` off all seven nodes' `proguard` and `createDist` tasks. Raw filename
-   comparison across a commit boundary is meaningless, since `git describe` changes per commit.
+7. **Task 4's acceptance was met per node, not in one invocation.** The plan's single
+   `clean build` was killed three times by system memory pressure, because the conversion doubled
+   the number of unimined applications configured in one pass. Substituted: every build directory
+   deleted, then each of the seven loader nodes built with
+   `:<loader>:<version>:build --configure-on-demand`, so proguard and createDist really ran. The
+   resulting jar set matches the pre-refactor set 42 for 42 once the `git describe` version is
+   normalised out, dist filenames carry the right per-loader `compType` including tweaker's
+   unsuffixed case, and the universal jar is byte-identical from clean at 3,991,169 bytes. Raw
+   filename comparison across a commit boundary is meaningless, since `git describe` changes per
+   commit. Still unverified: all nine nodes configuring in ONE invocation post-refactor.
 8. **`:universal` needs its own `repositories` block.** `nyliumEmbed` resolves `nylium-api`,
    `nylium-core` and the per-platform bootstraps as Maven coordinates, so without one the build
    fails with "no repositories are defined". The plan's Task 5 script omitted it.
