@@ -229,6 +229,32 @@ pair would dedupe far worse. Across 1.21.8 to 1.21.11 that has not happened, bec
 bytecode barely moves between these Minecraft versions. Do not read it as settled for a genuinely
 distant target; 1.16.5 is a different proposition.
 
+### 1.21.5 is next, and already analysed
+
+Not started, but the measuring is done so the next session need not repeat it.
+`git diff upstream/1.21.8 upstream/1.21.5 -- '*.java'` is 8 files, 55 insertions and 75 deletions.
+It is more work than 1.21.8 despite being smaller, because more of it is structural:
+
+| File | Shape | How |
+| --- | --- | --- |
+| `MixinNetworkManager` | `ChannelFutureListener` becomes `PacketSendListener` | 3 replacements |
+| `PathingBehavior`, `CustomGoalProcess`, `ElytraProcess` | the `instanceof ClientLevel` disconnect block collapses to `ctx.world().disconnect()` | 1 block replacement, same text in all three |
+| `GuiClick` | the `renderBackground` override does not exist | 1 block replacement, removing it |
+| `MixinScreen` | different target method, injection point, signature and body | overlay |
+| `MixinWorldRenderer` | `onStartHand` gains `GameRenderer`, loses `GpuBufferSlice` and `Vector4f` | overlay |
+| `BaritoneRenderType` | 77 lines: `getRenderPipeline()`, `GpuTexture`, no `ScissorState` | overlay |
+
+`MixinWorldRenderer` is an overlay rather than a replacement on purpose: 1.21.8 already rewrites
+that signature, and a second replacement would have to match the first one's output, which couples
+two gates to each other's text.
+
+**Three of 1.21.8's four overlays can be copied verbatim**: `IRenderer`, `PathRenderer` and
+`mixins.baritone.json` are all byte-identical between upstream 1.21.8 and 1.21.5. Only
+`BaritoneRenderType` has to be authored. Note this makes `IRenderer` a fourth copy of the same file.
+
+Keep `settings.gradle` un-updated until the node builds, or a half-finished fold leaves the whole
+tree unable to configure.
+
 ### The blocker this hit, and the change it forced
 
 **parchmentmc is still down** (measured: `https://maven.parchmentmc.org/` returns nothing, HTTP 000,
