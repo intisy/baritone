@@ -290,10 +290,13 @@ any compilation.
 --configure-on-demand` completes in about two minutes where the full build could not start.
 
 **This matters more as the matrix grows.** At the full 18 targets it is up to 4 times 18 unimined
-applications in a single configuration pass. Someone should decide whether
-`org.gradle.configureondemand=true` belongs in `gradle.properties` before more versions are folded
-in. It was NOT set here, because it changes behaviour for every invocation and that is the owner's
-call, not a side effect of this work.
+applications in a single configuration pass.
+
+**`org.gradle.configureondemand=true` is now set in `gradle.properties`**, on the owner's decision
+of 2026-09-08, so no invocation needs the flag any more. Verified after setting it:
+`./gradlew :fabric:1.21.11:assemble` with no flag is green in 1m13s. The consequence to remember is
+that a task path now configures only the projects it needs, so a whole-tree invocation is no longer
+the default behaviour anything is tested under.
 
 ### How the conventions refactor was verified
 
