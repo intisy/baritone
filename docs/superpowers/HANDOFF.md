@@ -258,6 +258,42 @@ show less.
   every loader now uses, so no `shared { }` block is needed.
 - `kotlinController = false` is required, or `create()` writes `.gradle.kts` controllers.
 
+### Configuration memory roughly doubled, and it will not scale as-is
+
+The tree went from 4 unimined applications to 8, and unimined configures Minecraft eagerly per
+node, so a plain `./gradlew build` now configures 8 loader nodes plus 2 common nodes in one pass.
+On 2026-09-08 that was enough to have the OS kill three separate build attempts on a 64 GB machine
+sitting at 85 GB commit charge with other applications loaded. It died during CONFIGURATION, before
+any compilation.
+
+`--configure-on-demand` is the mitigation and it works: `./gradlew :fabric:1.21.11:assemble
+--configure-on-demand` completes in about two minutes where the full build could not start.
+
+**This matters more as the matrix grows.** At the full 18 targets it is up to 4 times 18 unimined
+applications in a single configuration pass. Someone should decide whether
+`org.gradle.configureondemand=true` belongs in `gradle.properties` before more versions are folded
+in. It was NOT set here, because it changes behaviour for every invocation and that is the owner's
+call, not a side effect of this work.
+
+### How the conventions refactor was verified
+
+Not by the full `clean build` jar-set diff the plan asked for; that was killed three times by
+memory pressure. Two cheaper checks cover the same ground, and the difference is worth knowing:
+
+1. Every node assembled individually, and the produced jar set is identical to the pre-refactor set,
+   21 for 21, once the `git describe` version is normalised out. Normalising is necessary because
+   the version string changes with every commit, so raw filenames never compare equal across a
+   commit boundary.
+2. `compType` and `archivesBaseName` were read off every `proguard` and `createDist` task at
+   configuration time through an init script. `BaritoneGradleTask` derives all four dist filenames
+   from the ROOT `archives_base_name` plus `compType`, so `compType` alone determines them. All
+   seven nodes matched, including tweaker's `archivesBaseName=baritone` with `compType=null`.
+
+What this does NOT prove: proguard was not re-executed end to end after the refactor. The refactor
+changed only where those tasks are registered and what `compType` they receive, which is exactly
+what check 2 covers, but a full `clean build` on a machine with free memory is still worth running
+once.
+
 ### Still open
 
 - `mods.toml` declares the mod id as `baritoe`, an upstream typo. Changing a published mod id is the

@@ -845,6 +845,24 @@ Recorded 2026-09-08. The plan above is left as written; these are what actually 
    and the four `if (!loaderEnabled) return` lines are deleted. This also means the plan's
    `available_loaders` gate in the conventions script, Task 3 Step 3 item 3, does not exist.
 
+7. **Task 4's acceptance was met differently.** The plan's `clean build` jar-set diff was killed
+   three times by system memory pressure, because the conversion doubled the number of unimined
+   applications configured in one pass. Substituted: a per-node `assemble` sweep under
+   `--configure-on-demand`, whose jar set matches the pre-refactor set 21 for 21 once the
+   `git describe` version is normalised out, plus an init script reading `compType` and
+   `archivesBaseName` off all seven nodes' `proguard` and `createDist` tasks. Raw filename
+   comparison across a commit boundary is meaningless, since `git describe` changes per commit.
+8. **`:universal` needs its own `repositories` block.** `nyliumEmbed` resolves `nylium-api`,
+   `nylium-core` and the per-platform bootstraps as Maven coordinates, so without one the build
+   fails with "no repositories are defined". The plan's Task 5 script omitted it.
+9. **Forge 1.21.x is platform `MODLAUNCHER_9`, not `FORGE`.** Nylium's `PlatformId` is
+   `LAUNCHWRAPPER, MODLAUNCHER_8, MODLAUNCHER_9, NEOFORGE, FABRIC`, keyed on bootstrap family.
+   The plan's Task 5 example would have been rejected.
+10. **The universal jar needed naming.** With only `BasePlugin` applied it defaulted to
+    `universal-universal.jar` in `build/distributions`. `:universal` now sets `archivesName` from
+    `archives_base_name` and shares the loader version logic through the new
+    `gradle/mod-version.gradle`, giving `baritone-<version>-universal.jar`.
+
 ## Deviations to report rather than absorb
 
 Stop and report, do not work around, if any of these happen:
