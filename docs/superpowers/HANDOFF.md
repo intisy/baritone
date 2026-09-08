@@ -466,11 +466,12 @@ Neither was implemented, because it spans two repos and changes what gets shippe
 Nylium's smoke harness provisions servers only, and a dev client is the wrong environment: unimined
 runs the game in the `named` namespace while the universal jar's modules are remapped to
 `intermediary`, and the kernel extracts them at prelaunch, after Fabric's dev remapping step. So the
-client has to be a production one. The launcher used was a throwaway PowerShell script, NOT
-committed, that reuses the machine's existing `.minecraft` read-only: it merges the Fabric profile
-JSON from `meta.fabricmc.net` with the vanilla version JSON, resolves libraries, extracts the
-windows natives and launches `net.fabricmc.loader.impl.launch.knot.KnotClient`. Everything needed to
-rebuild it is in the traps below. On this machine 85 of 93 classpath entries came from `libraries/`, assets came
+client has to be a production one. `scripts/launch-production-client.ps1` does it, reusing an
+existing vanilla installation read-only: it merges the Fabric profile JSON from `meta.fabricmc.net`
+over the vanilla version JSON, resolves libraries, extracts the windows natives and launches
+`net.fabricmc.loader.impl.launch.knot.KnotClient` against a scratch game directory. Copy the
+universal jar into `<GameDirectory>/mods` first; pass `-ResolveOnly` to check the classpath without
+launching. On this machine 85 of 93 classpath entries came from `libraries/`, assets came
 from its `assets/` with index 27, and only 7 small Fabric jars were downloaded. The game directory is
 a scratch directory, never the real `.minecraft`, so the real `mods/` is untouched.
 
