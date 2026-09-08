@@ -55,6 +55,9 @@ for (platform in available_loaders.split(",")) {
     include(platform)
 }
 
+// Deliberately not a Stonecutter dimension: one universal jar spans every version.
+include('universal')
+
 def minecraft_versions = ['1.21.11', '1.21.10']
 
 def loadersSupporting = { version ->

@@ -1,0 +1,71 @@
+/*
+ * This file is part of Baritone.
+ *
+ * Baritone is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Baritone is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+plugins {
+    id 'io.github.intisy.nylium' version '0.1.0-SNAPSHOT'
+}
+
+// The plugin resolves nylium-api, nylium-core and one bootstrap per declared platform as Maven
+// coordinates into its own nyliumEmbed configuration, so this project needs its own repositories.
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+apply from: rootProject.file('gradle/mod-version.gradle')
+version = ext.baritoneVersion
+
+base {
+    archivesName = rootProject.archives_base_name
+}
+
+// Not a Stonecutter dimension: there is exactly one universal jar across every version.
+//
+// neoforge and tweaker are deliberately absent. NeoForge needs a bootstrap Nylium does not have
+// yet (its SP-1b), and tweaker is LaunchWrapper, which dispatches correctly and then crashes the
+// server (Nylium's limitation 4). Both would ship a module that cannot work.
+def moduleSources = [
+        ['fabric', '1.21.11', 'FABRIC'],
+        ['fabric', '1.21.10', 'FABRIC'],
+        ['forge', '1.21.11', 'MODLAUNCHER_9'],
+        ['forge', '1.21.10', 'MODLAUNCHER_9'],
+]
+
+moduleSources.each { loader, minecraftVersion, platform ->
+    evaluationDependsOn(":${loader}:${minecraftVersion}")
+}
+
+nylium {
+    mod {
+        id = 'baritone'
+        name = 'Baritone'
+        version = project.version
+        description = 'Google Maps for Blockgame'
+        license = 'LGPL-3.0'
+        authors = ['leijurv', 'Brady']
+    }
+
+    moduleSources.each { loader, minecraftVersion, platform ->
+        module("${loader}-${minecraftVersion}") {
+            jar = project(":${loader}:${minecraftVersion}").tasks.named('remapJar')
+                    .flatMap { it.archiveFile }
+            platforms = [platform]
+            minecraft = minecraftVersion
+            mixins = ['mixins.baritone.json']
+        }
+    }
+}
