@@ -15,10 +15,6 @@
  * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import baritone.gradle.task.CreateDistTask
-import baritone.gradle.task.ProguardTask
-//import baritone.gradle.task.TweakerJsonAssembler
-
 plugins {
     id "com.github.johnrengelman.shadow" version "8.0.0"
 }
@@ -31,16 +27,11 @@ ext.loaderBlock = { loaderVersion ->
         }
     }
 }
+ext.mixinManifest = true
+// Published unsuffixed, unlike every other loader.
+ext.distClassifier = null
 
 apply from: rootProject.file('gradle/loader-conventions.gradle')
-
-
-configurations {
-    common
-    shadowCommon // Don't use shadow from the shadow plugin because we don't want IDEA to index this.
-    compileClasspath.extendsFrom common
-    runtimeClasspath.extendsFrom common
-}
 
 dependencies {
     implementation "org.spongepowered:mixin:${rootProject.mixin_version}"
@@ -52,7 +43,6 @@ dependencies {
     implementation "org.ow2.asm:asm-util:${rootProject.asm_version}"
     implementation "org.ow2.asm:asm-analysis:${rootProject.asm_version}"
 
-
     implementation 'com.github.ImpactDevelopment:SimpleTweaker:1.2'
     implementation('net.minecraft:launchwrapper:of-2.3') {
         exclude module: 'lwjgl'
@@ -60,63 +50,9 @@ dependencies {
     }
 
     compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
-
-    // Multiple sourcesets, so `common project(...)` won't work.
-    for (sourceSet in commonNode.sourceSets) {
-        if (sourceSet == commonNode.sourceSets.test) continue
-        if (sourceSet == commonNode.sourceSets.schematica_api) continue
-        common sourceSet.output
-        shadowCommon sourceSet.output
-    }
-}
-
-shadowJar {
-    configurations = [project.configurations.shadowCommon]
-    archiveClassifier.set "dev-shadow"
-}
-
-
-remapJar {
-    inputFile.set shadowJar.archiveFile
-    dependsOn shadowJar
-    archiveClassifier.set null
 }
 
 jar {
-    archiveClassifier.set "dev"
-
     preserveFileTimestamps = false
     reproducibleFileOrder = true
-
-    manifest {
-        attributes(
-                'MixinConfigs': 'mixins.baritone.json',
-                "MixinConnector": "baritone.launch.BaritoneMixinConnector",
-
-                'Implementation-Title': 'Baritone',
-                'Implementation-Version': version,
-        )
-    }
-}
-
-task proguard(type: ProguardTask) {
-    proguardVersion "7.4.2"
-}
-
-task createDist(type: CreateDistTask, dependsOn: proguard)
-
-build.finalizedBy(createDist)
-
-publishing {
-    publications {
-        mavenCommon(MavenPublication) {
-            artifactId = rootProject.archives_base_name + "-" + loaderName + "-" + nodeVersion
-            from components.java
-        }
-    }
-
-    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
-    repositories {
-        // Add repositories to publish to here.
-    }
 }

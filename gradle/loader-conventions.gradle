@@ -28,6 +28,13 @@ ext.loaderName = project.parent.name
 ext.loaderVersion = versionProps.getProperty("${ext.loaderName}_version")
 ext.commonNode = project(":common:${ext.nodeVersion}")
 
+// Names the loader in artifact and dist file names. tweaker alone publishes unsuffixed, and opts
+// out by setting this to null before applying this script.
+if (!ext.has('distClassifier')) {
+    ext.distClassifier = ext.loaderName
+}
+def distClassifier = ext.distClassifier
+
 def minecraftVersion = versionProps.getProperty('minecraft_version')
 def javaVersion = versionProps.getProperty('java_version')
 def parchmentVersion = versionProps.getProperty('parchment_version')
@@ -39,7 +46,7 @@ apply plugin: 'java'
 apply plugin: "xyz.wagyourtail.unimined"
 apply plugin: "maven-publish"
 
-archivesBaseName = rootProject.archives_base_name
+archivesBaseName = rootProject.archives_base_name + (distClassifier != null ? "-${distClassifier}" : "")
 group = rootProject.maven_group
 
 apply from: rootProject.file('gradle/mod-version.gradle')
@@ -137,5 +144,98 @@ tasks.withType(JavaCompile).configureEach {
 
     if (JavaVersion.current().isJava9Compatible()) {
         it.options.release = javaVersion.toInteger()
+    }
+}
+
+configurations {
+    common
+    shadowCommon // Don't use shadow from the shadow plugin because we don't want IDEA to index this.
+    compileClasspath.extendsFrom common
+    runtimeClasspath.extendsFrom common
+}
+
+dependencies {
+    // Multiple sourcesets, so `common project(...)` won't work.
+    for (sourceSet in commonNode.sourceSets) {
+        if (sourceSet == commonNode.sourceSets.test) continue
+        if (sourceSet == commonNode.sourceSets.schematica_api) continue
+        common sourceSet.output
+        shadowCommon sourceSet.output
+    }
+}
+
+if (ext.has('metadataFile')) {
+    def metadataFile = ext.metadataFile
+    processResources {
+        inputs.property "version", project.version
+        inputs.property "minecraft_version", nodeVersion
+
+        filesMatching(metadataFile) {
+            expand "version": project.version, "minecraft_version": nodeVersion
+        }
+    }
+}
+
+shadowJar {
+    configurations = [project.configurations.shadowCommon]
+    archiveClassifier.set "dev-shadow"
+}
+
+remapJar {
+    inputFile.set shadowJar.archiveFile
+    dependsOn shadowJar
+    archiveClassifier.set null
+}
+
+jar {
+    archiveClassifier.set "dev"
+}
+
+if (ext.has('mixinManifest') && ext.mixinManifest) {
+    jar {
+        manifest {
+            attributes(
+                    'MixinConfigs': 'mixins.baritone.json',
+                    "MixinConnector": "baritone.launch.BaritoneMixinConnector",
+
+                    'Implementation-Title': 'Baritone',
+                    'Implementation-Version': version,
+            )
+        }
+    }
+}
+
+components.java {
+    withVariantsFromConfiguration(project.configurations.shadowRuntimeElements) {
+        skip()
+    }
+}
+
+task proguard(type: baritone.gradle.task.ProguardTask) {
+    proguardVersion "7.4.2"
+    if (distClassifier != null) {
+        compType distClassifier
+    }
+}
+
+task createDist(type: baritone.gradle.task.CreateDistTask, dependsOn: proguard) {
+    if (distClassifier != null) {
+        compType distClassifier
+    }
+}
+
+build.finalizedBy(createDist)
+
+publishing {
+    publications {
+        mavenLoader(MavenPublication) {
+            artifactId = rootProject.archives_base_name + "-" + loaderName + "-" + nodeVersion
+            from components.java
+        }
+    }
+
+    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+    repositories {
+        // Add repositories to publish to here.
     }
 }

@@ -15,9 +15,6 @@
  * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import baritone.gradle.task.CreateDistTask
-import baritone.gradle.task.ProguardTask
-
 plugins {
     id "com.github.johnrengelman.shadow" version "8.0.0"
 }
@@ -36,97 +33,11 @@ ext.loaderBlock = { loaderVersion ->
         ignoreConflicts(true)
     }
 }
+ext.metadataFile = 'META-INF/neoforge.mods.toml'
+ext.mixinManifest = true
 
 apply from: rootProject.file('gradle/loader-conventions.gradle')
 
-archivesBaseName = archivesBaseName + "-neoforge"
-
-
-//loom {
-//    forge {
-//        mixinConfig 'mixins.baritone.json'
-//    }
-//}
-
-configurations {
-    common
-    shadowCommon // Don't use shadow from the shadow plugin because we don't want IDEA to index this.
-    compileClasspath.extendsFrom common
-    runtimeClasspath.extendsFrom common
-}
-
 dependencies {
-    // Multiple sourcesets, so `common project(...)` won't work.
-    for (sourceSet in commonNode.sourceSets) {
-        if (sourceSet == commonNode.sourceSets.test) continue
-        if (sourceSet == commonNode.sourceSets.schematica_api) continue
-        common sourceSet.output
-        shadowCommon sourceSet.output
-    }
     shadowCommon "dev.babbaj:nether-pathfinder:${rootProject.nether_pathfinder_version}"
-}
-
-processResources {
-    inputs.property "version", project.version
-    inputs.property "minecraft_version", nodeVersion
-
-    filesMatching("META-INF/neoforge.mods.toml") {
-        expand "version": project.version, "minecraft_version": nodeVersion
-    }
-}
-
-shadowJar {
-    configurations = [project.configurations.shadowCommon]
-    archiveClassifier.set "dev-shadow"
-}
-
-remapJar {
-    inputFile.set shadowJar.archiveFile
-    dependsOn shadowJar
-    archiveClassifier.set null
-}
-
-jar {
-    archiveClassifier.set "dev"
-
-    manifest {
-        attributes(
-                'MixinConfigs': 'mixins.baritone.json',
-                "MixinConnector": "baritone.launch.BaritoneMixinConnector",
-
-                'Implementation-Title': 'Baritone',
-                'Implementation-Version': version,
-        )
-    }
-}
-
-components.java {
-    withVariantsFromConfiguration(project.configurations.shadowRuntimeElements) {
-        skip()
-    }
-}
-
-task proguard(type: ProguardTask) {
-    proguardVersion "7.4.2"
-    compType "neoforge"
-}
-
-task createDist(type: CreateDistTask, dependsOn: proguard) {
-    compType "neoforge"
-}
-
-build.finalizedBy(createDist)
-
-publishing {
-    publications {
-        mavenFabric(MavenPublication) {
-            artifactId = rootProject.archives_base_name + "-" + loaderName + "-" + nodeVersion
-            from components.java
-        }
-    }
-
-    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
-    repositories {
-        // Add repositories to publish to here.
-    }
 }
