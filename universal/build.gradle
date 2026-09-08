@@ -42,9 +42,11 @@ def moduleSources = [
         ['fabric', '1.21.11', 'FABRIC'],
         ['fabric', '1.21.10', 'FABRIC'],
         ['fabric', '1.21.8', 'FABRIC'],
+        ['fabric', '1.21.5', 'FABRIC'],
         ['forge', '1.21.11', 'MODLAUNCHER_9'],
         ['forge', '1.21.10', 'MODLAUNCHER_9'],
         ['forge', '1.21.8', 'MODLAUNCHER_9'],
+        ['forge', '1.21.5', 'MODLAUNCHER_9'],
 ]
 
 moduleSources.each { loader, minecraftVersion, platform ->

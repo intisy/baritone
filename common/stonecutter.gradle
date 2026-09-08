@@ -14,7 +14,13 @@ stonecutter.parameters { params ->
     def ver = params.node.metadata.version
     def isPre = params.eval(ver, "<1.21.11")
     def isPre1_21_10 = params.eval(ver, "<1.21.10")
-    println "STONECUTTER-PARAMS node=${ver} pre1_21_11=${isPre} pre1_21_10=${isPre1_21_10}"
+    def isPre1_21_8 = params.eval(ver, "<1.21.8")
+    // LevelRenderer.renderLevel's parameter list changes on nearly every version, so it cannot be
+    // ported by cumulative gates the way a one-way rename can: each range has to rewrite the shared
+    // signature exactly once, or the second gate would have to match the first gate's output and
+    // the two would be coupled through generated text.
+    def isExactly1_21_8Range = isPre1_21_10 && !isPre1_21_8
+    println "STONECUTTER-PARAMS node=${ver} pre1_21_11=${isPre} pre1_21_10=${isPre1_21_10} pre1_21_8=${isPre1_21_8}"
 
     // ---- Minecraft < 1.21.11 (1.21.10 and 1.21.8) ----
     if (isPre) {
@@ -90,14 +96,6 @@ stonecutter.parameters { params ->
                         'postLoadWorld(ClientLevel world, ReceivingLevelScreen.Reason reason, CallbackInfo ci)')
             }
 
-            // #4 LevelRenderer.renderLevel took one fewer Matrix4f on 1.21.8. The dropped parameter
-            // is unused in the injected body, so only the signature moves.
-            r.string { b ->
-                b.direction.set(true)
-                b.replace('final Matrix4f matrix4f2, final Matrix4f matrix4f3, final GpuBufferSlice',
-                        'final Matrix4f matrix4f2, final GpuBufferSlice')
-            }
-
             // #5 Palette.write took the block-state registry as a second argument on 1.21.8.
             r.string { b ->
                 b.direction.set(true)
@@ -148,6 +146,120 @@ stonecutter.parameters { params ->
                 b.direction.set(true)
                 b.replace('super.mouseClicked(event, doubleClick)',
                         'super.mouseClicked(mouseX, mouseY, mouseButton)')
+            }
+        }
+    }
+
+    // ---- renderLevel's signature, rewritten once per range rather than cumulatively ----
+    if (isExactly1_21_8Range) {
+        params.replacements { r ->
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('final Matrix4f matrix4f2, final Matrix4f matrix4f3, final GpuBufferSlice',
+                        'final Matrix4f matrix4f2, final GpuBufferSlice')
+            }
+        }
+    }
+
+    // ---- Minecraft < 1.21.8 (currently only 1.21.5) ----
+    // Derived from `git diff upstream/1.21.8 upstream/1.21.5 -- '*.java'`, 8 files. The renderer
+    // files are per-node overlays; these are the six that stay single-sourced.
+    if (isPre1_21_8) {
+        params.replacements { r ->
+            // #1 renderLevel took a GameRenderer and only two matrices, and GpuBufferSlice does not
+            // exist yet, so its import has to go rather than merely being unused.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('final Camera camera, final Matrix4f matrix4f, final Matrix4f matrix4f2, final Matrix4f matrix4f3, final GpuBufferSlice gpuBufferSlice, final Vector4f vector4f, final boolean bl2, final CallbackInfo ci)',
+                        'final Camera camera, final GameRenderer gameRenderer, final Matrix4f matrix4f, final Matrix4f matrix4f2, final CallbackInfo ci)')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('import com.mojang.blaze3d.buffers.GpuBufferSlice;',
+                        'import net.minecraft.client.renderer.GameRenderer;')
+            }
+
+            // #2 Connection.sendPacket took a netty ChannelFutureListener before 1.21.8 wrapped it.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('import io.netty.channel.ChannelFutureListener;',
+                        'import net.minecraft.network.PacketSendListener;')
+            }
+            // Only the type moves; the parameter name is left alone so the two dispatch signatures
+            // stay distinct from each other, which a reversible replacement needs.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('final Packet<?> packet, final ChannelFutureListener channelFutureListener, final boolean flush, final CallbackInfo ci)',
+                        'final Packet<?> packet, final PacketSendListener channelFutureListener, final boolean flush, final CallbackInfo ci)')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('Packet<?> packet, ChannelFutureListener packetSendListener, boolean flush, CallbackInfo ci)',
+                        'Packet<?> packet, PacketSendListener packetSendListener, boolean flush, CallbackInfo ci)')
+            }
+
+            // #3 ClientLevel.disconnect took no argument before 1.21.8, and the call was
+            // unconditional upstream. The condition is kept rather than dropped because Stonecutter
+            // rejects a replacement it cannot reverse, and a bare '{' is not uniquely invertible.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('if (ctx.world() instanceof ClientLevel clientLevel) {',
+                        'if (ctx.world() != null) { // no ClientLevel bind needed before 1.21.8')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('clientLevel.disconnect(Component.literal("[Baritone] Arrived at goal!"));',
+                        'ctx.world().disconnect();')
+            }
+
+            // #4 Upstream does not suppress the screen background here. The override is kept and
+            // its body delegates instead of being deleted, because a replacement source must stay
+            // on one line: the working tree is CRLF, a multi-line source silently matches nothing,
+            // and a Linux checkout would be LF, so any multi-line source is unportable either way.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('// Prevent default background rendering',
+                        'super.renderBackground(stack, mouseX, mouseY, partialTicks);')
+            }
+
+            // #5 RenderPipelines has no MATRICES_FOG_SNIPPET yet, so shadowing it would fail at
+            // mixin apply time rather than at compile time. Dropping the @Shadow leaves an added
+            // field that is only ever read through getMatricesFogSnippet(), whose sole caller is
+            // 1.21.11's IRenderer overlay, so nothing on this version observes the null.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('@Final @Shadow private static RenderPipeline.Snippet MATRICES_FOG_SNIPPET;',
+                        'private static RenderPipeline.Snippet MATRICES_FOG_SNIPPET; // not a game field here')
+            }
+
+            // #6 The click-event hook targets a different method with a different shape: an
+            // INVOKE-site injection into handleComponentClicked, taking the Style and returning a
+            // boolean, rather than a HEAD injection into the static game-click handler.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('@Inject(method = "defaultHandleGameClickEvent", at = @At(value = "HEAD"), cancellable = true)',
+                        '''@Inject(method = "handleComponentClicked", at = @At(
+        value = "INVOKE",
+        target = "Lnet/minecraft/client/multiplayer/ClientPacketListener;sendUnsignedCommand(Ljava/lang/String;)Z"
+    ), cancellable = true)''')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('private static void handleCustomClickEvent(final ClickEvent clickEvent, final Minecraft minecraft, final Screen screen, final CallbackInfo callback) {',
+                        '''public void handleCustomClickEvent(final Style style, final CallbackInfoReturnable<Boolean> callback) {
+        ClickEvent clickEvent = style.getClickEvent();''')
+            }
+            // setReturnValue also cancels, so this is upstream's pair of calls in one. The shared
+            // parameter is named `callback` rather than `ci` precisely so this anchor is unique:
+            // `ci.cancel();` appears in two other mixins that must not change.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('callback.cancel();', 'callback.setReturnValue(true);')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;',
+                        'import net.minecraft.network.chat.Style;\nimport org.spongepowered.asm.mixin.injection.callback.CallbackInfo;\nimport org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;')
             }
         }
     }

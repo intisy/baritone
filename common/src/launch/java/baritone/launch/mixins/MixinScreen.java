@@ -36,7 +36,7 @@ public abstract class MixinScreen implements IGuiScreen {
 
     //TODO: switch to enum extention with mixin 9.0 or whenever Mumfrey gets around to it
     @Inject(method = "defaultHandleGameClickEvent", at = @At(value = "HEAD"), cancellable = true)
-    private static void handleCustomClickEvent(final ClickEvent clickEvent, final Minecraft minecraft, final Screen screen, final CallbackInfo ci) {
+    private static void handleCustomClickEvent(final ClickEvent clickEvent, final Minecraft minecraft, final Screen screen, final CallbackInfo callback) {
         if (clickEvent == null) {
             return;
         }
@@ -48,6 +48,6 @@ public abstract class MixinScreen implements IGuiScreen {
         if (baritone != null) {
             baritone.getGameEventHandler().onSendChatMessage(new ChatEvent(command));
         }
-        ci.cancel();
+        callback.cancel();
     }
 }

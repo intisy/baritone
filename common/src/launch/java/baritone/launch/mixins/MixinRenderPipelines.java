@@ -29,8 +29,9 @@ public class MixinRenderPipelines implements IRenderPipelines {
     @Final @Shadow
     private static RenderPipeline.Snippet LINES_SNIPPET;
 
-    @Final @Shadow
-    private static RenderPipeline.Snippet MATRICES_FOG_SNIPPET;
+    // Kept on one line so a per-version replacement can anchor on it: this field does not exist
+    // before 1.21.8, where shadowing it would fail at mixin apply time.
+    @Final @Shadow private static RenderPipeline.Snippet MATRICES_FOG_SNIPPET;
 
     @Shadow
     private static RenderPipeline register(final RenderPipeline renderPipeline) { return null; }
