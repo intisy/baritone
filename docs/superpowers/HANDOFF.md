@@ -247,12 +247,14 @@ show less.
   project, so `ext.anything` read in there resolves against the wrong object.
 - **`ProguardTask` reads `getProject().findProperty("java_version")`.** That used to resolve through
   root's `ext` and is null on a node, so the conventions script sets `ext.java_version`.
-- **parchmentmc is a latent build-stopper.** `maven.parchmentmc.net` and `maven.parchmentmc.org`
-  (same IP) were unreachable on 2026-09-08, and Gradle probes every declared repository on a cache
-  miss, so an unrelated miss on the synthesized `net.minecraft:minecraft_fabric_1.21.10` coordinate
-  timed out and failed resolution outright. `gradle/loader-conventions.gradle` scopes any
-  parchmentmc repository to `org.parchmentmc.data` as it is added, including the one unimined adds
-  itself. **`common/build.gradle` still declares it unscoped** and will hit this on a cold cache.
+- **parchmentmc is a latent build-stopper, now fixed.** `maven.parchmentmc.net` and
+  `maven.parchmentmc.org` (same IP) were unreachable on 2026-09-08, and Gradle probes every declared
+  repository on a cache miss, so an unrelated miss on the synthesized
+  `net.minecraft:minecraft_fabric_1.21.10` coordinate timed out and failed resolution outright.
+  `gradle/mc-repositories.gradle` now holds the one repository list, scoping any parchmentmc
+  repository to `org.parchmentmc.data` as it is added, which catches the one unimined adds itself.
+  Both `common/build.gradle` and `gradle/loader-conventions.gradle` apply it, and it must be applied
+  BEFORE unimined or the hook misses unimined's own repository. Verified from a wiped `common`.
 - The Stonecutter `create()` finding in the old spike was over-generalised. The MULTI-project block
   form does fail, but the single-project `create(Object, Action)` overload works fine and is what
   every loader now uses, so no `shared { }` block is needed.

@@ -1,0 +1,65 @@
+/*
+ * This file is part of Baritone.
+ *
+ * Baritone is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Baritone is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// Applied by every project that resolves Minecraft: the ':common' version nodes and, through
+// gradle/loader-conventions.gradle, the loader version nodes. Must be applied BEFORE unimined,
+// which adds a parchmentmc repository of its own that the hook below has to catch.
+
+// parchmentmc hosts only mapping data, but is otherwise probed for every cache miss and is slow
+// enough to time out and fail resolution outright.
+repositories.whenObjectAdded { repo ->
+    if (repo instanceof MavenArtifactRepository && repo.url?.host?.contains('parchmentmc')) {
+        repo.content {
+            includeGroup "org.parchmentmc.data"
+        }
+    }
+}
+
+repositories {
+    maven {
+        url = "https://files.minecraftforge.net/maven/"
+    }
+    maven {
+        name = 'spongepowered-repo'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+    }
+    maven {
+        name = 'fabric-maven'
+        url = 'https://maven.fabricmc.net/'
+    }
+    maven {
+        name = 'impactdevelopment-repo'
+        url = 'https://impactdevelopment.github.io/maven/'
+    }
+    maven {
+        name = "ldtteam"
+        url = "https://maven.parchmentmc.net/"
+    }
+    // for the newer version of launchwrapper
+    maven {
+        name = "multimc-maven"
+        url = "https://files.multimc.org/maven/"
+        metadataSources {
+            artifact()
+        }
+    }
+    mavenCentral()
+    maven {
+        name = 'babbaj-repo'
+        url = 'https://babbaj.github.io/maven/'
+    }
+}
