@@ -304,6 +304,29 @@ build-determinism task rather than part of a fold; note that `preserveFileTimest
 node's own `jar` task will not reach an entry inside a nested jar. **Roughly 1 MB is recoverable**,
 and it will recur for any version whose nested jar is re-zipped on the other side of that boundary.
 
+### What the rest of the matrix costs, measured
+
+Fold cost is wildly uneven, so pick the order from this table rather than counting version numbers.
+Each row is `git diff --shortstat upstream/<from> upstream/<to> -- '*.java'`:
+
+| Step | Java files | Note |
+| --- | --- | --- |
+| 1.21.5 to 1.21.4 | 31 | the render overhaul boundary, the expensive one |
+| 1.21.4 to 1.21.3 | **3** | nearly free once 1.21.4 exists |
+| 1.21.3 to 1.21.1 | 24 | |
+| 1.21.1 to 1.21 | 68 | |
+| 1.21 to 1.20.5 | 81 | largest measured so far |
+| 1.20.5 to 1.20.4 | 13 | |
+
+**This corrects the 2026-07-13 plan's order, which skips 1.21.4 entirely** and goes
+1.21.5 to 1.21.3. Do 1.21.4 next instead: it crosses the render overhaul once, and 1.21.3 then costs
+3 files instead of a second crossing. Going straight to 1.21.3 pays the 31-file cliff and leaves
+1.21.4 still owing it.
+
+The cliff is where Minecraft replaced the immediate-mode renderer with the `RenderPipeline` system,
+which is exactly the area this repo already carries four per-node `IRenderer` copies for. Expect the
+overlay set to change shape there rather than just grow, and budget for it as its own unit of work.
+
 ### The 1.21.5 analysis, as recorded before doing it
 
 The measuring below was done first; it is kept because it held up.
