@@ -1,7 +1,12 @@
 # READ FIRST: where the multi-version work actually lives
 
-**Written 2026-09-06.** This repo's 2026-07-13 spec and plan are **partly superseded**. Read this
-before acting on them.
+**Written 2026-09-06, substantially updated 2026-09-08.** This repo's 2026-07-13 spec and plan are
+**partly superseded**. Read this before acting on them.
+
+**Start here if you are new:** SP-3's blocker was removed on 2026-09-08. One `./gradlew build` now
+produces a remapped loader jar per Minecraft version, and `:universal` assembles them into a Nylium
+universal jar. Jump to "SP-3 blocker: REMOVED 2026-09-08" for what exists and what is still open.
+The single most important open item is that **nothing has been booted on a real server yet**.
 
 ## The library that now carries the multi-version job
 
@@ -116,8 +121,9 @@ actually compiled against and cannot be folded.
 
 ## State of the Stonecutter version dimension
 
-**Both version nodes compile as of 2026-09-06.** `./gradlew :common:1.21.10:build` and
-`:common:1.21.11:build` are each green. Two pieces got them there.
+**Both version nodes compile, re-confirmed 2026-09-08** as part of a full nine-node build.
+`./gradlew :common:1.21.10:build` and `:common:1.21.11:build` are each green. Two pieces got them
+there.
 
 **1. `common/stonecutter.gradle` carries a `stonecutter.parameters {}` block** with six per-version
 source replacements porting the 1.21.11-authored shared source down to 1.21.10 mappings (Identifier
@@ -152,56 +158,113 @@ previous alpha exactly.
 approach equivalent to 1.21.11's per-vertex one. Check that invariant still holds before adding a
 batch that mixes widths on 1.21.10: it would silently render every line at the last width set.
 
-## SP-3 blocker, and the spike that answered it
+## SP-3 blocker: REMOVED 2026-09-08
 
-**Spiked 2026-09-06. Throwaway edits reverted; the tree is clean and both nodes still build.**
+**Loaders are now Stonecutter dimensions and one invocation builds every version.** This section
+previously described the blocker and the spike that answered it; both are history. See
+`docs/superpowers/specs/2026-09-08-loader-stonecutter-nodes-design.md` for the design and
+`docs/superpowers/plans/2026-09-08-loader-stonecutter-nodes.md` for the executed plan, whose
+"Deviations found while executing Task 3" section is the part worth reading.
 
-Nylium dispatches **pre-remapped** modules, so SP-3's required input is one already-built loader jar
-per Minecraft version. Baritone cannot currently produce that in a single invocation.
+### What one `./gradlew build` now produces
 
-**Why.** Per-node *common* jars are fine: `:common:1.21.10:build` works while `1.21.11` is active.
-But the loader subprojects bind to the ACTIVE version at configuration time in four places, so one
-invocation yields one version's loader jars:
+Measured, not assumed. Nine version nodes build in a single invocation:
 
-- `rootProject.active_loaders` (the self-skip guard at the top of each loader script)
-- `rootProject.fabric_version` / `forge_version` / `neoforge_version`
-- `def commonNode = project(":common:${project(':common').stonecutter.current.version}")`
-- unimined's Minecraft version, applied to loaders from root `allprojects {}`
+| Project | Nodes |
+| --- | --- |
+| `:common` | 1.21.10, 1.21.11 |
+| `:fabric` | 1.21.10, 1.21.11 |
+| `:forge` | 1.21.10, 1.21.11 |
+| `:neoforge` | 1.21.11 only |
+| `:tweaker` | 1.21.10, 1.21.11 |
 
-Root `build.gradle` even regex-parses `common/stonecutter.gradle` for `active(...)` and loads that
-node's `gradle.properties` into root `ext`. That whole mechanism exists **only** because loaders are
-not Stonecutter nodes, and making them nodes removes the need for it.
+Seven remapped loader jars, 42 jars in total counting the api, dev, unoptimized and standalone
+variants. Each node's jar declares its OWN Minecraft version: `:fabric:1.21.10`'s `fabric.mod.json`
+says `"minecraft": ["1.21.10"]`, which before this work was hardcoded to 1.21.11 in a single shared
+resource and would have shipped wrong the moment two versions built together.
 
-**The fix is to make each loader a Stonecutter-versioned project**, so `:fabric:1.21.10` and
-`:fabric:1.21.11` coexist and each reads its own node `gradle.properties`. Four things the spike
-established, so nobody has to rediscover them:
+### The shape
 
-1. `stonecutter { create(project(':common'), project(':fabric')) { versions(...) } }` is **not**
-   valid and fails settings evaluation with `No versions have been registered`. The multi-project
-   form is a `shared { versions(...); vcsVersion = ... }` block followed by one bare
-   `create(project(':x'))` per project. That form evaluates successfully.
-2. Loader `include(...)` calls must move **above** the `stonecutter { }` block, since `create()`
-   needs the project to exist.
-3. `create()` **auto-generates the controller script** (it wrote `fabric/stonecutter.gradle.kts`
-   containing `stonecutter active "1.21.11"`). Expect it; do not hand-write it. As with `:common`,
-   the controller takes `stonecutter.gradle` and `fabric/build.gradle` becomes the PER-NODE script.
-4. The next failure after that is `minecraft config never applied for source set 'main'` on
-   `:fabric`. This is the gotcha already documented at the top of `common/build.gradle`: a
-   Stonecutter version node swallows unimined's deferred `afterEvaluate`, so unimined must be
-   applied **immediately** as `unimined.minecraft(sourceSets.main) { }`, never the lateApply
-   overload. Each loader script needs that change.
+- `settings.gradle` registers `:common` over every version, and **each loader over only the versions
+  whose `available_loaders` declares it**. So `:neoforge:1.21.10` does not exist at all.
+- Root `build.gradle` is a pure aggregator: 151 lines deleted, including the `active(...)` regex
+  parse, the properties load into `rootProject.ext`, `active_loaders`, and the whole `allprojects {}`
+  block.
+- `gradle/loader-conventions.gradle` carries everything the four loader scripts shared. They are now
+  33 to 58 lines each, 16 of which is the license header, and hold only their unimined block,
+  `ext.metadataFile`, `ext.mixinManifest` and their own extra dependencies.
+- `gradle/mod-version.gradle` carries the `git describe` version logic, shared by the loader
+  conventions and `:universal`.
+- Per-version constants still live in exactly one place, `common/versions/<ver>/gradle.properties`.
+  A loader node reads the file keyed on its own version. No per-loader duplicate of it exists.
 
-Remaining design work, which is why this stopped at the spike rather than landing half of it: each
-`:fabric:<version>` node must depend on `:common:<the same version>` instead of the active one, and
-the per-node `available_loaders` subset has to replace the current `active_loaders` self-skip guard
-now that "active" stops being a global. Root `build.gradle`'s active-version parsing should then be
-deleted rather than adapted.
+### The universal jar exists
 
-**Recommended first slice once that lands:** Fabric only, 1.21.10 plus 1.21.11. Both nodes already
-compile, Fabric carries none of Nylium's three limitations, and a two-version Fabric pair is exactly
-the discrimination case Nylium's own smoke matrix uses to prove dispatch rather than mere loading.
-It also gives Nylium the second real consumer its handoff wants before retiring the testmod's
-hand-rolled `universalJar`.
+`:universal` applies `io.github.intisy.nylium` and produces
+`universal/build/distributions/baritone-<version>-universal.jar`, carrying four modules:
+
+| Module | Platform | Minecraft |
+| --- | --- | --- |
+| `baritone-fabric-1.21.11` | `FABRIC` | 1.21.11 |
+| `baritone-fabric-1.21.10` | `FABRIC` | 1.21.10 |
+| `baritone-forge-1.21.11` | `MODLAUNCHER_9` | 1.21.11 |
+| `baritone-forge-1.21.10` | `MODLAUNCHER_9` | 1.21.10 |
+
+Note **Forge 1.21.x is `MODLAUNCHER_9`, not a "FORGE" platform**; Nylium's `PlatformId` enum is
+`LAUNCHWRAPPER, MODLAUNCHER_8, MODLAUNCHER_9, NEOFORGE, FABRIC`, keyed on the bootstrap family
+rather than the loader brand.
+
+No `entrypoint` is declared. Baritone's `fabric.mod.json` carries an empty entrypoints block and
+works purely through mixins, and Nylium's `ManifestRenderer` null-checks the field, so **no new
+Baritone entrypoint class was needed**.
+
+**Dedupe measured on Baritone's own four-module jar: 43.3 percent smaller.** Undeduped 7,039,630
+bytes, deduped 3,991,203 bytes, saving 3,048,427. Both zip-compressed identically, so this is the
+apples-to-apples number. It beats the 33.7 percent recorded earlier in this file because that
+measured two `common` node jars while this measures four whole loader jars, which share more.
+The adjacency caveat still stands: 1.21.10 and 1.21.11 are neighbours, so a distant pair would
+show less.
+
+### What the universal jar deliberately omits
+
+`:neoforge` and `:tweaker` build, and are deliberately NOT modules:
+
+- **NeoForge** needs a bootstrap Nylium does not have (its SP-1b). Shipping the module would ship
+  something that cannot dispatch.
+- **tweaker** is LaunchWrapper, Nylium's limitation 4, which dispatches correctly and then crashes
+  the server. Note also that both version nodes list `tweaker` in `available_loaders` even though
+  LaunchWrapper is not a real 1.21.x target. That looks stale and is worth checking before anyone
+  relies on those two nodes for anything.
+
+### Traps this work produced
+
+- **A loader node's `plugins { shadow }` block defeats any configuration-time loader gate.** Shadow
+  applies the java plugin, so a node that "skips" itself still compiles loader source against a
+  classpath with no loader on it. This is exactly how `:neoforge:1.21.10:compileJava` failed. Gate
+  structurally in `settings.gradle` by not creating the node, never at configuration time.
+- **`ext.loaderBlock` must be set BEFORE `apply from:`**, and must take the loader version as a
+  closure parameter. Inside `unimined.minecraft { }` the delegate is unimined's config, not the
+  project, so `ext.anything` read in there resolves against the wrong object.
+- **`ProguardTask` reads `getProject().findProperty("java_version")`.** That used to resolve through
+  root's `ext` and is null on a node, so the conventions script sets `ext.java_version`.
+- **parchmentmc is a latent build-stopper.** `maven.parchmentmc.net` and `maven.parchmentmc.org`
+  (same IP) were unreachable on 2026-09-08, and Gradle probes every declared repository on a cache
+  miss, so an unrelated miss on the synthesized `net.minecraft:minecraft_fabric_1.21.10` coordinate
+  timed out and failed resolution outright. `gradle/loader-conventions.gradle` scopes any
+  parchmentmc repository to `org.parchmentmc.data` as it is added, including the one unimined adds
+  itself. **`common/build.gradle` still declares it unscoped** and will hit this on a cold cache.
+- The Stonecutter `create()` finding in the old spike was over-generalised. The MULTI-project block
+  form does fail, but the single-project `create(Object, Action)` overload works fine and is what
+  every loader now uses, so no `shared { }` block is needed.
+- `kotlinController = false` is required, or `create()` writes `.gradle.kts` controllers.
+
+### Still open
+
+- `mods.toml` declares the mod id as `baritoe`, an upstream typo. Changing a published mod id is the
+  owner's call, so it was left alone.
+- Nothing has been RUN. The universal jar is assembled and its manifest verified by reading it, but
+  no Minecraft server has booted it. Nylium's own smoke matrix covers its testmod and conformance
+  mod, not Baritone.
 
 ## Branch model, and what must NOT be deleted yet
 
