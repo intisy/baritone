@@ -14,9 +14,9 @@ reaches the main menu and stays up. See "The Fabric modules crashed the client" 
 and the verification, and "The universal jar has now been booted" for the server runs.
 
 **The largest remaining item is no longer about booting.** It is folding the other versions in:
-`development` carries three Stonecutter nodes against `origin`'s 20 per-version branches, and the
-2026-07-13 requirement to port 1.16.5, 1.17.1 and 1.18.2 onto unimined+Mojmap is still live and
-still the precondition for deleting any of those branches.
+`development` carries four Stonecutter nodes against `origin`'s 20 per-version branches, and the
+2026-07-13 requirement to port 1.16.5, 1.17.1 and 1.18.2 onto unimined+Mojmap is still live, though
+it is no longer a precondition for deleting those branches: see the retraction under "Branch model".
 
 ## The library that now carries the multi-version job
 
@@ -229,9 +229,70 @@ pair would dedupe far worse. Across 1.21.8 to 1.21.11 that has not happened, bec
 bytecode barely moves between these Minecraft versions. Do not read it as settled for a genuinely
 distant target; 1.16.5 is a different proposition.
 
-### 1.21.5 is next, and already analysed
+### 1.21.5 is folded in too, 2026-09-08
 
-Not started, but the measuring is done so the next session need not repeat it.
+`:common:1.21.5`, `:fabric:1.21.5` and `:forge:1.21.5` are green, all four earlier version nodes
+were re-checked and stayed green, and the universal jar carries **eight modules over four
+versions**. The analysis this section originally recorded is below and held up, except that
+`MixinWorldRenderer` needed no overlay after all.
+
+**Three traps this one produced, all worth knowing before folding the next version:**
+
+1. **Stonecutter rejects a replacement it cannot reverse.** `'if (...) {' -> '{'` fails outright
+   with `Replacement ... is irreversible`, and so does replacing anything with an empty string,
+   because it has to undo replacements when switching the active node. Every replacement target has
+   to be uniquely invertible, which also means two replacements must not converge on the same text:
+   the two `sendPacket` signatures had to keep their distinct parameter names for that reason.
+2. **A multi-line replacement source silently matches nothing.** The working tree is CRLF and a
+   Groovy `'''...'''` literal is LF, so the source never matches. One such replacement failed
+   loudly as a compile error and a second failed **silently**, leaving a `renderBackground` override
+   in place that upstream does not have. Worse, anchoring on CRLF would break on a Linux checkout
+   where the same files are LF. **Never use a multi-line replacement source.** Multi-line
+   *targets* are fine. Where a one-line anchor did not exist, the fix was to make one: the shared
+   `MixinScreen` parameter was renamed `ci` to `callback` so `callback.cancel();` is unique
+   (`ci.cancel();` appears in two other mixins), and `MATRICES_FOG_SNIPPET`'s `@Final @Shadow` was
+   folded onto its declaration line.
+3. **A gate that is cumulative for renames is wrong for signatures.** `renderLevel`'s parameter list
+   changes on nearly every version, so a `<1.21.10` and a `<1.21.8` block would both fire on 1.21.5
+   and the second would have to match the first's output. It is now range-exclusive
+   (`isPre1_21_10 && !isPre1_21_8`), so each range rewrites the shared signature exactly once. One-way
+   renames stay cumulative.
+
+**A mixin that compiles is not a mixin that applies.** `MixinRenderPipelines` shadows
+`MATRICES_FOG_SNIPPET`, which does not exist before 1.21.8. It compiles anyway, because a `@Shadow`
+is only a declaration, and the build said so once in a line easy to scroll past:
+`[WARN] Could not find target field for @Shadow MATRICES_FOG_SNIPPET`. At runtime that is a mixin
+apply failure, not a warning. The field could not simply be dropped from the shared source either:
+its only reader is **1.21.11's** `IRenderer` overlay, for the beacon-beam pipelines. So a
+`<1.21.8` replacement turns the shadow into a plain added field, whose null nothing on those
+versions observes. **Grep loader build output for `Could not find target` after every fold.**
+
+### The duplicate blob that costs 982 KB
+
+1.21.5's marginal cost is **1,133,564 bytes**, 31 percent of its two module jars' 3,618,903 raw
+bytes, against 1.21.8's 8 percent. But it added only **37 new blobs**, which does not square with
+a megabyte, and the reason is a real defect rather than distance:
+
+| Blob | Size | Referenced by |
+| --- | --- | --- |
+| `5bf06c2406b80c86...` | 982,181 | fabric 1.21.8, 1.21.10, 1.21.11 |
+| `4cda0d7cbe9769af...` | 982,181 | fabric **1.21.5** only |
+| `2c26396b165e57fb...` | 941,296 | all four forge modules |
+
+The first two are the same `META-INF/jars/nether-pathfinder-1.4.1.jar`, the same library at the
+same version and **the same byte count**, stored twice because the two re-zips differ in framing,
+not content. So content-addressed dedupe misses on the single largest artifact in the jar. Those
+three blobs are 2.9 MB of a 5.4 MB jar.
+
+The likely cause is that 1.21.5 declares `fabric_version=0.16.10` where the others declare
+`0.16.14`, and the `include` repackaging is not byte-reproducible across them. Not fixed: the fix is
+to make that nested jar reproducible (or to stop re-zipping it), which is a build-determinism task
+rather than part of a fold. **Roughly 1 MB is recoverable**, and it will recur for every future
+version whose loader version differs.
+
+### The 1.21.5 analysis, as recorded before doing it
+
+The measuring below was done first; it is kept because it held up.
 `git diff upstream/1.21.8 upstream/1.21.5 -- '*.java'` is 8 files, 55 insertions and 75 deletions.
 It is more work than 1.21.8 despite being smaller, because more of it is structural:
 
@@ -295,17 +356,17 @@ previously described the blocker and the spike that answered it; both are histor
 ### What one `./gradlew build` now produces
 
 Measured when this was written, at two versions and nine nodes. **1.21.8 has since been folded in**,
-so the tree is now fourteen nodes; the counts below were not re-measured at three versions, and
+so the tree is now nineteen nodes; the counts below were not re-measured at four versions, and
 `:common:1.21.8`, `:fabric:1.21.8` and `:forge:1.21.8` were each built individually rather than as
 one invocation.
 
 | Project | Nodes |
 | --- | --- |
-| `:common` | 1.21.8, 1.21.10, 1.21.11 |
-| `:fabric` | 1.21.8, 1.21.10, 1.21.11 |
-| `:forge` | 1.21.8, 1.21.10, 1.21.11 |
-| `:neoforge` | 1.21.8, 1.21.11 |
-| `:tweaker` | 1.21.8, 1.21.10, 1.21.11 |
+| `:common` | 1.21.5, 1.21.8, 1.21.10, 1.21.11 |
+| `:fabric` | 1.21.5, 1.21.8, 1.21.10, 1.21.11 |
+| `:forge` | 1.21.5, 1.21.8, 1.21.10, 1.21.11 |
+| `:neoforge` | 1.21.5, 1.21.8, 1.21.11 |
+| `:tweaker` | 1.21.5, 1.21.8, 1.21.10, 1.21.11 |
 
 At two versions that was seven remapped loader jars and 42 in total counting the api, dev,
 unoptimized and standalone variants. **All four of 1.21.8's declared loaders build**: `:fabric`,
@@ -699,6 +760,34 @@ branch) and `development`, both currently at the same commit, with feature branc
 Note that the local `restructure-master` branch tracks **upstream**, so a careless `git push` on
 it aims at the wrong repository.
 
+**RETRACTED 2026-09-08: every per-version branch is safe to delete, and the claim below that
+deleting them would destroy unfolded work was wrong.** It rested on `--is-ancestor` alone and never
+asked the other question: whether the fork's copy holds anything `upstream` does not. Measured for
+all 19:
+
+| Group | Branches | Evidence |
+| --- | --- | --- |
+| Ancestors of `development` | 1.19.2, 1.19.3, 1.19.4, 1.20.1, 1.20.2, 1.20.4, 1.20.5, 1.21, 1.21.1, 1.21.3, 1.21.5, 1.21.8 | every commit already reachable from `development` |
+| Byte-identical to upstream | 1.13.2, 1.14.4, 1.15.2, 1.16.5, 1.17.1, 1.18.2 | `git log upstream/<v>..origin/<v>` is **0 commits** |
+| Genuinely unique | 1.21.4 | 8 commits not in upstream: the fork's custom features |
+
+So the 1.16.5, 1.17.1 and 1.18.2 source that the note below called irreplaceable is sitting at
+`upstream/1.16.5` and friends, a public remote that is not going anywhere. Only `1.21.4` ever held
+anything of its own.
+
+**And `1.21.4` is now guarded too.** The 2026-07-13 plan's Phase M0 was supposed to create an
+archive tag and push it; the tag `archive/1.21.4-custom` existed **locally only**, so the guard the
+whole deletion plan depended on was never published. It is now pushed and verified on the remote at
+`20e5bb8d5`, and `git merge-base --is-ancestor origin/1.21.4 archive/1.21.4-custom` confirms it
+covers that branch's tip.
+
+**The deletion itself was refused by this environment's permission layer**, not declined on the
+merits: `git push origin --delete` for the 19 branches was blocked by the sandbox classifier even
+with the owner's explicit authorisation, so it needs either a Bash permission rule or a manual run.
+Nothing about the analysis above is waiting on anything else.
+
+The original note follows, superseded.
+
 **The remaining per-version branches are scheduled for deletion, but deleting them now would
 destroy work that has not been folded in yet.** `origin` carries 20 per-version branches
 (`1.13.2` through `1.21.10`) while `development` carries only two Stonecutter nodes, `1.21.10` and
@@ -765,10 +854,20 @@ inputs that do not exist and break CI outright.
 Note that `intisy/workflows` itself has only `main` and one stale feature branch, with no
 `development`, which the global two-branch rule expects. Not restructured here.
 
-### README on `development`
+### README on `development`: FIXED 2026-09-08
 
-`development` still carries a hand-written `README.md` inherited from upstream. The global rule is
-that READMEs are generated onto the default branch only, and a development branch carries the
-generator's template instead. Migrating means adding `CONTENT.md` plus `.github/docs-config.yml`
-and dropping `README.md` from `development`, the same shape Nylium uses. Left alone here because it
-removes upstream's README, which is the owner's call.
+`development` no longer carries a hand-written `README.md`. It now holds `CONTENT.md` plus
+`.github/docs-config.yml` and a thin `readme.yml` caller, the same shape Nylium uses, so the README
+is generated onto the default branch only.
+
+`CONTENT.md` is not upstream's README with the badges stripped. Upstream's version table is wrong
+for this fork, the badge rows and stargazer chart point at `cabaletta/baritone`, and the donation
+line is upstream's. What was kept: the getting-started links, the API example, the FAQ, and the
+credits to leijurv and YourKit, which a fork has no business dropping. What was added: what this
+fork actually ships, since "one universal jar over Stonecutter nodes" is the whole point and
+upstream's README says nothing about it.
+
+**`main` still has the old README until the generator runs.** The rule is satisfied on
+`development`; regenerating `main` needs a `workflow_dispatch` of `Generate README`, or a release.
+Note also that `kind: java-library` in the docs config is copied from Nylium because it is the only
+value known to work here; the generator's other kinds were not checked.
