@@ -13,9 +13,10 @@ stonecutter.active('1.21.11')
 stonecutter.parameters { params ->
     def ver = params.node.metadata.version
     def isPre = params.eval(ver, "<1.21.11")
-    println "STONECUTTER-PARAMS node=${ver} pre1_21_11=${isPre}"
+    def isPre1_21_10 = params.eval(ver, "<1.21.10")
+    println "STONECUTTER-PARAMS node=${ver} pre1_21_11=${isPre} pre1_21_10=${isPre1_21_10}"
 
-    // ---- Minecraft < 1.21.11 (currently only 1.21.10) ----
+    // ---- Minecraft < 1.21.11 (1.21.10 and 1.21.8) ----
     if (isPre) {
         params.replacements { r ->
             // #1 net.minecraft.resources.Identifier -> ResourceLocation (import + every use-site).
@@ -36,6 +37,118 @@ stonecutter.parameters { params ->
             // #5 monster.spider.Spider / monster.zombie.ZombifiedPiglin flattened (Avoidance imports).
             r.string { b -> b.direction.set(true); b.replace('monster.spider.Spider', 'monster.Spider') }
             r.string { b -> b.direction.set(true); b.replace('monster.zombie.ZombifiedPiglin', 'monster.ZombifiedPiglin') }
+        }
+    }
+
+    // ---- Minecraft < 1.21.10 (currently only 1.21.8) ----
+    // These stack on top of the < 1.21.11 block above: the shared source is authored for 1.21.11,
+    // that block ports it to 1.21.10, and this one carries it the rest of the way to 1.21.8.
+    // Derived from `git diff upstream/1.21.10 upstream/1.21.8 -- '*.java'`, which is 9 files. The
+    // four renderer files are per-node overlays under versions/1.21.8/src instead, because their
+    // divergence is structural rather than a rename.
+    if (isPre1_21_10) {
+        params.replacements { r ->
+            // #1 ServerLevel's constructor gained a ChunkProgressListener after 1.21.8, so the
+            // ServerLevelStub subclass has one fewer parameter here and renumbers the rest.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('import net.minecraft.server.level.ServerLevel;',
+                        'import net.minecraft.server.level.ServerLevel;\nimport net.minecraft.server.level.progress.ChunkProgressListener;')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('LevelStem $$5, boolean $$6, long $$7, List<CustomSpawner> $$8, boolean $$9, @Nullable RandomSequences $$10)',
+                        'LevelStem $$5, ChunkProgressListener $$6, boolean $$7, long $$8, List<CustomSpawner> $$9, boolean $$10, @Nullable RandomSequences $$11)')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('super($$0, $$1, $$2, $$3, $$4, $$5, $$6, $$7, $$8, $$9, $$10);',
+                        'super($$0, $$1, $$2, $$3, $$4, $$5, $$6, $$7, $$8, $$9, $$10, $$11);')
+            }
+
+            // #2 Mixin target descriptors moved from the `Lowner;method(...)` form to `owner.method(...)`.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('"Lnet/minecraft/world/entity/LivingEntity;move(', '"net/minecraft/world/entity/LivingEntity.move(')
+            }
+
+            // #3 Minecraft.setLevel dropped its ReceivingLevelScreen.Reason parameter after 1.21.8,
+            // and an @Inject's own signature has to mirror the target method exactly.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('import net.minecraft.client.gui.screens.Screen;',
+                        'import net.minecraft.client.gui.screens.ReceivingLevelScreen;\nimport net.minecraft.client.gui.screens.Screen;')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('preLoadWorld(final ClientLevel world, final CallbackInfo ci)',
+                        'preLoadWorld(ClientLevel world, ReceivingLevelScreen.Reason reason, CallbackInfo ci)')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('postLoadWorld(final ClientLevel world, final CallbackInfo ci)',
+                        'postLoadWorld(ClientLevel world, ReceivingLevelScreen.Reason reason, CallbackInfo ci)')
+            }
+
+            // #4 LevelRenderer.renderLevel took one fewer Matrix4f on 1.21.8. The dropped parameter
+            // is unused in the injected body, so only the signature moves.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('final Matrix4f matrix4f2, final Matrix4f matrix4f3, final GpuBufferSlice',
+                        'final Matrix4f matrix4f2, final GpuBufferSlice')
+            }
+
+            // #5 Palette.write took the block-state registry as a second argument on 1.21.8.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('palette.write(buf, Block.BLOCK_STATE_REGISTRY)', 'palette.write(buf)')
+            }
+
+            // #6 Palette gained maybeHas and the resize-hint overload of idFor after 1.21.8, so on
+            // 1.21.8 the id is fetched unconditionally, which is what upstream's own 1.21.8 did.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('iPalettedContainer.getPalette().maybeHas(state -> state.equals(AIR_BLOCK_STATE))', 'true')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('idFor(AIR_BLOCK_STATE, PaletteResize.noResizeExpected())', 'idFor(AIR_BLOCK_STATE)')
+            }
+            // PaletteResize is package-private before 1.21.10, so importing it is an error rather
+            // than merely unused once the call above is gone.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('import net.minecraft.world.level.chunk.PaletteResize;',
+                        '// PaletteResize is not public on this version')
+            }
+
+            // #7 Screen's mouse callbacks took loose doubles and an int button before 1.21.10
+            // wrapped them in MouseButtonEvent, and that class does not exist here at all.
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('import net.minecraft.client.input.MouseButtonEvent;',
+                        '// MouseButtonEvent does not exist on this version')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('mouseReleased(MouseButtonEvent event)',
+                        'mouseReleased(double mouseX, double mouseY, int mouseButton)')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('mouseClicked(MouseButtonEvent event, boolean doubleClick)',
+                        'mouseClicked(double mouseX, double mouseY, int mouseButton)')
+            }
+            r.string { b -> b.direction.set(true); b.replace('event.button()', 'mouseButton') }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('super.mouseReleased(event)', 'super.mouseReleased(mouseX, mouseY, mouseButton)')
+            }
+            r.string { b ->
+                b.direction.set(true)
+                b.replace('super.mouseClicked(event, doubleClick)',
+                        'super.mouseClicked(mouseX, mouseY, mouseButton)')
+            }
         }
     }
 }
