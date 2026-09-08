@@ -6,7 +6,10 @@
 **Start here if you are new:** SP-3's blocker was removed on 2026-09-08. One `./gradlew build` now
 produces a remapped loader jar per Minecraft version, and `:universal` assembles them into a Nylium
 universal jar. Jump to "SP-3 blocker: REMOVED 2026-09-08" for what exists and what is still open.
-The single most important open item is that **nothing has been booted on a real server yet**.
+**The jar has now been booted**: three of its four modules dispatch on real servers, verified
+2026-09-08 evening. Jump to "The universal jar has now been booted" for what that does and does not
+prove. The single most important open item is now that **no client has ever run it**, and Baritone
+is a client mod, so nothing yet shows Baritone itself working.
 
 ## The library that now carries the multi-version job
 
@@ -232,9 +235,24 @@ show less.
 - **NeoForge** needs a bootstrap Nylium does not have (its SP-1b). Shipping the module would ship
   something that cannot dispatch.
 - **tweaker** is LaunchWrapper, Nylium's limitation 4, which dispatches correctly and then crashes
-  the server. Note also that both version nodes list `tweaker` in `available_loaders` even though
-  LaunchWrapper is not a real 1.21.x target. That looks stale and is worth checking before anyone
-  relies on those two nodes for anything.
+  the server.
+
+**`tweaker` in `available_loaders` is NOT stale; that earlier note was wrong and is retracted.**
+This file previously said both version nodes list `tweaker` even though "LaunchWrapper is not a real
+1.21.x target", and called it stale. That conflated two different LaunchWrapper uses. Baritone's
+`:tweaker` is not the Forge 1.7.10-1.12.2 bootstrap family at all: it is the **vanilla-client
+standalone** target, injected with `net.minecraft.launchwrapper.Launch --tweakClass
+baritone.launch.tweaker.BaritoneTweaker` over OptiFine's `net.minecraft:launchwrapper:of-2.3` plus
+ImpactDevelopment's `SimpleTweaker`, which is exactly why it is the one loader published unsuffixed
+(`ext.distClassifier = null`). Vanilla-client injection is version-independent, so listing it for
+1.21.x is correct and both nodes should keep it.
+
+Excluding the tweaker module from the universal jar still stands, but for the other reason: Nylium's
+LaunchWrapper *backend* is broken (its limitation 4), and that is a property of the backend, not of
+the target's legitimacy. The mechanism, `MixinBootstrap.init()` mutating the transformer list
+`LaunchClassLoader.runTransformers` is iterating, lives in `LaunchClassLoader`, which OptiFine's
+`of-2.3` shares with Forge 1.7.10's, so a vanilla-client launch is expected to hit it too. Nobody
+has measured that, and it is not worth measuring until Nylium's LaunchWrapper spike lands.
 
 ### Traps this work produced
 
@@ -302,13 +320,101 @@ invocation. That was green before the refactor (a 10 minute `./gradlew build`), 
 be re-run here for memory reasons. Nothing in the refactor touches project registration, so the
 risk is low, but it is not zero and it is worth one run on a machine with free memory.
 
+**Still not run as of 2026-09-08 evening, and the reason is now measured rather than assumed.** The
+machine was at 94.7 GB commit charge against a 101.4 GB limit, 6.7 GB free, with 4.3 GB of 63.9 GB
+physical free: *less* headroom than the 85 GB that killed the three earlier attempts. Gradle daemons
+were not the problem, holding about 2.9 GB between six JVMs; the charge is WSL at 20.2 GB, three
+JetBrains IDEs and a QEMU VM. Freeing that means closing the owner's own applications, so this was
+left alone. Note `--dry-run` is NOT a cheaper way to settle it: unimined configures Minecraft
+eagerly, and configuration is exactly the phase that dies, so a dry run costs the same memory as
+the real one.
+
 ### Still open
 
 - `mods.toml` declares the mod id as `baritoe`, an upstream typo. Changing a published mod id is the
   owner's call, so it was left alone.
-- Nothing has been RUN. The universal jar is assembled and its manifest verified by reading it, but
-  no Minecraft server has booted it. Nylium's own smoke matrix covers its testmod and conformance
-  mod, not Baritone.
+- The fourth module, `baritone-forge-1.21.10`, has never been dispatched: Nylium's harness has no
+  Forge 1.21.10 server, only 1.7.10, 1.16.5 and 1.21.11. The other three are proven; see below.
+- **Baritone's own behaviour is still unverified**, and a dedicated server cannot verify it. See the
+  boundary in the next section.
+
+## The universal jar has now been booted, 2026-09-08
+
+**Three of its four modules dispatch on real servers.** This replaces the "nothing has been RUN"
+item that led this file until now. Each run booted to Minecraft's own `Done (` readiness line, then
+shut down on a `stop` command written to the server's stdin, and exited 0. None was force-killed.
+
+| Server | Module the kernel selected | Extraction cache | Ready |
+| --- | --- | --- | --- |
+| Fabric 1.21.11 | `baritone-fabric-1.21.11.index` | `baritone-fabric-1.21.11-77ca8a47887004ac.jar` | `Done (0.537s)` |
+| Fabric 1.21.10 | `baritone-fabric-1.21.10.index` | `baritone-fabric-1.21.10-f641e2d9453d6d48.jar` | `Done (4.270s)` |
+| Forge 1.21.11 (ML9) | `baritone-forge-1.21.11.index` | `baritone-forge-1.21.11-aafe1a736d07e963.jar` | `Done (5.038s)` |
+
+Evidence, not inference. The kernel's Fabric and ML9 bootstraps print the descriptor they chose, so
+each log carries a line like
+`[Nylium] booted modules/baritone-fabric-1.21.11.index (platforms=[FABRIC], minecraft=1.21.11, environment=any)`.
+The `.index` suffix is itself proof dedupe is live: the module is an index over the shared object
+store, not a whole jar, and the cache entry is the real jar the kernel rebuilt from it. The two
+Fabric rows are the load-bearing pair, the same universal jar picking a different module per server,
+with different content hashes. Fabric also lists Baritone among its own mods
+(`- baritone 1.15.0-41-g96b804da`). On ML9 the log additionally carries
+`Successfully loaded Mixin Connector [baritone.launch.BaritoneMixinConnector]`, which is Baritone's
+own class loading and running, not merely a module being extracted.
+
+### What these boots prove, and what they cannot
+
+Proven: per-version module selection, extraction from the deduped object store, mixin-config
+registration, Baritone's own connector class loading on ML9, and no crash across a full boot and a
+clean shutdown.
+
+**Not proven: that Baritone does anything.** All 21 entries in `mixins.baritone.json` sit in its
+`client` block and its `mixins` block is empty, so on a dedicated server not one Baritone mixin
+applies; the ML9 connector registers the config and Mixin then skips every entry. Baritone is a
+client mod, so this is the ceiling for server-side verification, and the remaining gap is Nylium's
+limitation 3: CLIENT is unverified on every backend and no client smoke test exists anywhere.
+Do not read these three green rows as "Baritone works on one jar" - read them as "the jar dispatches
+the right Baritone to the right version, and nothing crashes."
+
+Two log lines are worth recognising so nobody debugs them as regressions. Mixin logs
+`Mixin config mixins.baritone.json does not specify "minVersion" or "requiredFeatures" property`
+at ERROR; that is an upstream Baritone config gap, non-fatal, and predates this work. The Forge run
+also carries a log4j `MLClassLoaderContextSelector` `ClassCastException` and a netty
+`Epoll ... Only supported on Linux` failure, both ordinary Forge-on-Windows noise that fire before
+Nylium boots.
+
+### How to re-run this, and the two traps in doing so
+
+**Do not use `./gradlew :smoke:test` for Baritone.** That harness asserts on a marker file written
+by a module's entrypoint, and Baritone declares no entrypoint, so it can only ever fail. Worse, it
+force-kills the server the instant a marker appears, which is the exact structural blindness that
+kept LaunchWrapper green over a dying server for this project's whole history.
+
+Install the jar through Nylium's provisioning tasks, which clear `mods/` and delete the stale
+extraction cache first, then boot by hand and wait for `Done (`:
+
+```
+cd ../Nylium
+./gradlew :smoke:provisionFabricServers -PnyliumSmoke "-PnyliumSmokeJar=<abs path to universal jar>"
+./gradlew :smoke:provisionForge12111   -PnyliumSmoke "-PnyliumSmokeJar=<abs path to universal jar>"
+```
+
+Provisioning renames the jar to `nylium-testmod-universal.jar` regardless of what it holds, because
+`ModLauncher9SmokeTest` launches a literal `-cp` naming that file. Fabric boots with
+`-jar fabric-server-launch.jar nogui`; ML9 cannot, because its `ILaunchPluginService` is enumerated
+from the boot layer ModLauncher builds from the literal JVM classpath and never from a `mods/` scan,
+so it needs
+`-cp nylium-testmod-universal.jar;forge-1.21.11-61.1.5-shim.jar net.minecraftforge.bootstrap.shim.Main nogui`.
+Delete each server's `nylium/` directory between runs or the cache hides a failure to extract.
+
+**The stdin trap, if you drive the server from PowerShell.** `Process.StandardInput` is a
+`StreamWriter` over `Console.InputEncoding` with `AutoFlush = true`, and the `AutoFlush` setter
+flushes immediately, so a preamble-carrying encoding writes a UTF-8 BOM into the pipe at
+`Process.Start`, before anything you send. The server reads it as part of the first command name and
+answers `Unknown or incomplete command` on a line that renders as `﻿stop<--[HERE]`, the server never
+stops, and a driver that waits for exit hangs. Writing raw bytes to `.BaseStream` does not help; the
+BOM is already in the pipe. Set an encoding with no preamble before `Start`
+(`[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false`). Confirmed by hexdump:
+`ef bb bf 73 74 6f 70`.
 
 ## Branch model, and what must NOT be deleted yet
 
