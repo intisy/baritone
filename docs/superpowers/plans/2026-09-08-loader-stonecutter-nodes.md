@@ -808,6 +808,43 @@ git commit -m "docs(handoff): record baritone as the second real consumer"
 
 ---
 
+## Deviations found while executing Task 3
+
+Recorded 2026-09-08. The plan above is left as written; these are what actually differed.
+
+1. **`create()` takes the loader list, not five literals.** `settings.gradle` uses
+   `create([project(':common')] + available_loaders.split(",").collect { project(":${it.trim()}") })`,
+   the `Iterable` overload, so the loader list is not duplicated between the include loop and the
+   `create` call.
+2. **`ext.loaderBlock` takes the loader version as a parameter.** Referencing `ext.loaderVersion`
+   from inside the closure is unsafe, because with `DELEGATE_FIRST` the delegate is unimined's
+   config object rather than the project. The closure signature is `{ loaderVersion -> ... }` and
+   the conventions script calls `loaderBlock(loaderVersion)`.
+3. **`loaderBlock` and `loaderVersion` are captured into locals** before the `unimined.minecraft`
+   closure, for the same delegate reason. Reading `ext.has('loaderBlock')` inside the closure
+   resolves against unimined's config, not the project.
+4. **parchmentmc had to be scoped, which the plan did not foresee.** `maven.parchmentmc.net` and
+   `maven.parchmentmc.org` (same IP) were unreachable, and Gradle probes every declared repository
+   for a cache miss, so an unrelated miss on the synthesized `net.minecraft:minecraft_fabric_1.21.10`
+   coordinate timed out and failed resolution outright. unimined adds its own parchmentmc
+   repository, so the fix is a `repositories.whenObjectAdded` hook applying
+   `content { includeGroup "org.parchmentmc.data" }` to any parchmentmc repository as it is added.
+   Both parchment mapping versions were already cached, so nothing needed downloading from that
+   host. This is a latent fragility in the existing build, not something the conversion introduced;
+   `common/build.gradle` declares the same unscoped repository and would hit it on a cold cache.
+5. **`ProguardTask` needs a `java_version` project property.** It calls
+   `getProject().findProperty("java_version")`, which used to resolve through root's `ext` and now
+   resolves to null on a node. The conventions script sets `ext.java_version`.
+6. **The `loaderEnabled` gate was wrong and is gone.** Task 3 Step 9's full build failed on
+   `:neoforge:1.21.10:compileJava` with missing `net.neoforged` packages, even though 1.21.10 does
+   not list neoforge and the gate fired correctly. A loader script's `plugins { shadow }` block
+   necessarily precedes any gate, and shadow applies the java plugin, so a skipped node still
+   compiled loader source against a classpath with no loader on it. The fix is structural: each
+   loader is registered over only the versions that declare it, using the single-project
+   `create(Object, Action)` overload, so `:neoforge:1.21.10` is never created. `ext.loaderEnabled`
+   and the four `if (!loaderEnabled) return` lines are deleted. This also means the plan's
+   `available_loaders` gate in the conventions script, Task 3 Step 3 item 3, does not exist.
+
 ## Deviations to report rather than absorb
 
 Stop and report, do not work around, if any of these happen:

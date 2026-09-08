@@ -41,8 +41,8 @@ configure (four loaders plus both `:common` nodes), and both `STONECUTTER-PARAMS
 ### Tree shape
 
 `settings.gradle` moves the loader include loop above the `stonecutter { }` block, because
-`create()` requires the projects to exist, then registers all five projects against one shared
-version set:
+`create()` requires the projects to exist, then registers `:common` over every version and each
+loader over only the versions that declare it:
 
 ```groovy
 include('common')
@@ -50,17 +50,41 @@ for (platform in available_loaders.split(",")) { include(platform) }
 
 stonecutter {
     kotlinController = false
-    shared { versions('1.21.11', '1.21.10'); vcsVersion = '1.21.11' }
-    create(project(':common'), project(':fabric'), project(':forge'),
-           project(':neoforge'), project(':tweaker'))
+
+    create(project(':common')) {
+        versions(*minecraft_versions)
+        vcsVersion = minecraft_versions.first()
+    }
+
+    available_loaders.split(",").each { loader ->
+        def supported = minecraft_versions.findAll { loadersSupporting(it).contains(loader.trim()) }
+        if (supported.isEmpty()) { return }
+        create(project(":${loader.trim()}")) {
+            versions(*supported)
+            vcsVersion = supported.first()
+        }
+    }
 }
 ```
 
+**Amended 2026-09-08 during execution.** An earlier draft of this section used a single `shared { }`
+version set for every project plus a configuration-time `loaderEnabled` gate, so a node such as
+`:neoforge:1.21.10` was created and then skipped. That is wrong, and the full-matrix build proved
+it: the loader script's `plugins { shadow }` block runs before any gate can, shadow applies the
+java plugin, and the skipped node compiled loader source with no loader on the classpath.
+`:neoforge:1.21.10:compileJava` failed on missing `net.neoforged` packages. Giving each loader
+only the versions that declare it means the unsupported node is never created, which is
+structural rather than a runtime skip, and deletes the gate entirely. The old arrangement never
+failed before this work only because 1.21.11 was always active and lists every loader, so the
+skip path was never exercised.
+
 Verified against `stonecutter-0.7.11.jar` rather than assumed:
 
-- `StonecutterSettingsExtension` declares both `create(Object[], Action)` and `create(Object...)`,
-  so the varargs form is valid. The spike's failing form was three arguments in Groovy and binds to
-  `create(Object, File, Action)` instead.
+- The spike's failing form, `create(a, b) { versions(...) }`, is three arguments in Groovy and binds
+  to `create(Object, File, Action)`. The single-project `create(Object, Action)` overload that
+  `:common` already uses is fine, and is what each loader now uses too, so no `shared { }` block is
+  needed. `create(Object[], Action)` and `create(Object...)` do exist, but registering every project
+  against one version set is exactly the arrangement this design rejects.
 - `kotlinController` is a settable `Property<Boolean>`. Without it `create()` generates
   `fabric/stonecutter.gradle.kts`, which is what surprised the spike. Setting it false keeps every
   auto-generated controller on Groovy, matching `:common`.
@@ -93,9 +117,9 @@ New `gradle/loader-conventions.gradle`, applied by each loader node as its first
 1. resolves its own version via `stonecutter.node.metadata.version`;
 2. loads `common/versions/<ver>/gradle.properties` from disk, the single source of truth, keyed on
    this node's version rather than a global active one;
-3. gates on that file's `available_loaders`, replacing the `rootProject.active_loaders` self-skip
-   in all four loader scripts. `:neoforge:1.21.10` self-skips because 1.21.10 does not list
-   neoforge; `:neoforge:1.21.11` builds;
+3. needs no loader gate at all. `settings.gradle` gives each loader only the versions whose
+   `available_loaders` declares it, so every node that exists is supported and
+   `rootProject.active_loaders` disappears rather than being replaced;
 4. applies java, unimined and maven-publish, the repositories, shared dependencies, toolchain and
    the compiler release setting, everything the deleted `allprojects` block did;
 5. applies unimined IMMEDIATELY, never the lateApply overload, because a Stonecutter version node
@@ -162,7 +186,7 @@ that actually produce a jar:
 | --- | --- | --- |
 | Fabric 1.21.10 and 1.21.11 | yes | The load-bearing pair. The same jar selecting a different module per version is what proves dispatch rather than mere loading. Fabric carries none of Nylium's four limitations. |
 | Forge 1.21.10 and 1.21.11 | probably | Nylium unblocks Forge 1.17 and later. Unproven for Baritone specifically. |
-| NeoForge 1.21.11 | no | Blocked by Nylium limitation 2 and SP-1b. 1.21.10 does not list neoforge at all. |
+| NeoForge 1.21.11 | no | Blocked by Nylium SP-1b, which has to write a NeoForge bootstrap. `:neoforge:1.21.10` does not exist, because 1.21.10 does not list neoforge. |
 | tweaker, both versions | no | LaunchWrapper, blocked by Nylium limitation 4, which crashes the server after correct dispatch. Both version nodes list `tweaker` in `available_loaders` despite LaunchWrapper not being a real 1.21.x target; this is likely stale and should be investigated, not silently relied on. |
 
 The delivered module set will be reported from the built artifact, not promised in advance.
