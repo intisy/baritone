@@ -282,9 +282,9 @@ one invocation.
 | `:tweaker` | 1.21.8, 1.21.10, 1.21.11 |
 
 At two versions that was seven remapped loader jars and 42 in total counting the api, dev,
-unoptimized and standalone variants. **`:neoforge:1.21.8` and `:tweaker:1.21.8` have never been
-built**, only registered: 1.21.8's `available_loaders` declares them, and only the two loaders the
-universal jar actually ships were built. Each node's jar declares its OWN Minecraft version: `:fabric:1.21.10`'s `fabric.mod.json`
+unoptimized and standalone variants. **All four of 1.21.8's declared loaders build**: `:fabric`,
+`:forge`, `:neoforge` and `:tweaker` were each run individually and are green, so the new version is
+folded in across every loader it declares, not only the two the universal jar ships. Each node's jar declares its OWN Minecraft version: `:fabric:1.21.10`'s `fabric.mod.json`
 says `"minecraft": ["1.21.10"]`, which before this work was hardcoded to 1.21.11 in a single shared
 resource and would have shipped wrong the moment two versions built together.
 
