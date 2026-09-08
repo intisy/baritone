@@ -284,11 +284,25 @@ same version and **the same byte count**, stored twice because the two re-zips d
 not content. So content-addressed dedupe misses on the single largest artifact in the jar. Those
 three blobs are 2.9 MB of a 5.4 MB jar.
 
-The likely cause is that 1.21.5 declares `fabric_version=0.16.10` where the others declare
-`0.16.14`, and the `include` repackaging is not byte-reproducible across them. Not fixed: the fix is
-to make that nested jar reproducible (or to stop re-zipping it), which is a build-determinism task
-rather than part of a fold. **Roughly 1 MB is recoverable**, and it will recur for every future
-version whose loader version differs.
+**The cause is nailed down, and it is not the loader version.** Both nested jars are 982,181 bytes
+with identical entry listings, and the first differing byte is at 977,140, inside the local file
+header of the `fabric.mod.json` entry *within* the nested jar:
+
+```
+1.21.5 : 14 00 08 08 08 00 00 b8 3f 00   ->  DOS 1980-01-31 23:00
+1.21.8 : 14 00 08 08 08 00 00 00 41 00   ->  DOS 1980-02-01 00:00
+```
+
+That is the same normalised instant written one hour apart, a timezone artifact in whatever re-zips
+that entry, not wall-clock drift: the three matching modules were built hours apart on the same day
+and still agree. My first guess, that `fabric_version=0.16.10` against `0.16.14` was responsible,
+is **wrong** and worth recording as wrong so nobody bumps a loader version expecting a megabyte
+back.
+
+Not fixed. The fix is to make the `include` path write a fixed timestamp, and it is a
+build-determinism task rather than part of a fold; note that `preserveFileTimestamps = false` on the
+node's own `jar` task will not reach an entry inside a nested jar. **Roughly 1 MB is recoverable**,
+and it will recur for any version whose nested jar is re-zipped on the other side of that boundary.
 
 ### The 1.21.5 analysis, as recorded before doing it
 
