@@ -6,10 +6,12 @@
 **Start here if you are new:** SP-3's blocker was removed on 2026-09-08. One `./gradlew build` now
 produces a remapped loader jar per Minecraft version, and `:universal` assembles them into a Nylium
 universal jar. Jump to "SP-3 blocker: REMOVED 2026-09-08" for what exists and what is still open.
-**The jar has now been booted**: three of its four modules dispatch on real servers, verified
-2026-09-08 evening. Jump to "The universal jar has now been booted" for what that does and does not
-prove. The single most important open item is now that **no client has ever run it**, and Baritone
-is a client mod, so nothing yet shows Baritone itself working.
+**The jar has now been booted**, on three servers and on a real client, verified 2026-09-08 evening.
+**The client run found a blocker: both Fabric modules crash the client during startup**, because
+Fabric jar-in-jar does not survive Nylium's dispatch, so `nether-pathfinder` is unreachable. The
+Forge modules are unaffected. SP-3 is therefore NOT shippable as it stands, and this is the single
+most important open item. Read "The Fabric modules crash the client" below before anything else;
+"The universal jar has now been booted" covers the server runs.
 
 ## The library that now carries the multi-version job
 
@@ -338,8 +340,12 @@ the real one.
   owner's call, so it was left alone.
 - The fourth module, `baritone-forge-1.21.10`, has never been dispatched: Nylium's harness has no
   Forge 1.21.10 server, only 1.7.10, 1.16.5 and 1.21.11. The other three are proven; see below.
-- **Baritone's own behaviour is still unverified**, and a dedicated server cannot verify it. See the
-  boundary in the next section.
+- **Both Fabric modules crash a real client during startup** on the nested `nether-pathfinder` jar.
+  This is SP-3's blocker and the fix is an open decision spanning this repo and Nylium. See "The
+  Fabric modules crash the client".
+- **Baritone has still never been seen doing anything.** It initialises on a client and then dies at
+  `registerProcess`, so no pathing, no command, no rendering has ever run from a universal jar. A
+  client on 1.21.11 is also untested, for the asset reason recorded below.
 
 ## The universal jar has now been booted, 2026-09-08
 
@@ -373,10 +379,9 @@ clean shutdown.
 **Not proven: that Baritone does anything.** All 21 entries in `mixins.baritone.json` sit in its
 `client` block and its `mixins` block is empty, so on a dedicated server not one Baritone mixin
 applies; the ML9 connector registers the config and Mixin then skips every entry. Baritone is a
-client mod, so this is the ceiling for server-side verification, and the remaining gap is Nylium's
-limitation 3: CLIENT is unverified on every backend and no client smoke test exists anywhere.
-Do not read these three green rows as "Baritone works on one jar" - read them as "the jar dispatches
-the right Baritone to the right version, and nothing crashes."
+client mod, so this is the ceiling for server-side verification. Do not read these three green rows
+as "Baritone works on one jar" - read them as "the jar dispatches the right Baritone to the right
+version, and nothing crashes." The client run below shows how much that gap mattered.
 
 Two log lines are worth recognising so nobody debugs them as regressions. Mixin logs
 `Mixin config mixins.baritone.json does not specify "minVersion" or "requiredFeatures" property`
@@ -384,6 +389,112 @@ at ERROR; that is an upstream Baritone config gap, non-fatal, and predates this 
 also carries a log4j `MLClassLoaderContextSelector` `ClassCastException` and a netty
 `Epoll ... Only supported on Linux` failure, both ordinary Forge-on-Windows noise that fire before
 Nylium boots.
+
+## The Fabric modules crash the client, found 2026-09-08
+
+**A real Fabric 1.21.10 client was booted with the universal jar and it crashed during startup.**
+This is the blocker SP-3 has to clear before it can ship, and it is worth understanding exactly how
+much of the way it got first, because almost everything worked:
+
+- Nylium dispatched **on a client**, the first time that has ever happened on any backend:
+  `[Nylium] booted modules/baritone-fabric-1.21.10.index (platforms=[FABRIC], minecraft=1.21.10, environment=any)`.
+- Mixin reported `Detected Side : CLIENT`, selected `mixins.baritone.json`, prepared all 20 mixins
+  and applied them against intermediary names (`MixinMinecraft` into `net.minecraft.class_310`,
+  `MixinWorldRenderer` into `class_761`, and so on). So a production-remapped module dispatched by
+  the kernel resolves correctly against a production client's namespace.
+- Baritone itself ran and spoke to the player:
+  `[CHAT] [Baritone] Baritone settings file not found, resetting.`
+- Then the game died with `NoClassDefFoundError: dev/babbaj/pathfinder/NetherPathfinder`.
+
+### Root cause: Fabric jar-in-jar does not survive dispatch
+
+The stack is unambiguous and fires on every startup, from Baritone's own mixin:
+
+```
+MixinMinecraft handler$zzh000$postInit -> BaritoneAPI.<clinit> -> BaritoneProvider
+  -> Baritone.<init> -> registerProcess -> ElytraProcess.create
+  -> NetherPathfinderContext.isSupported -> NetherPathfinder.isThisSystemSupported()
+```
+
+`fabric/build.gradle` declares `include "dev.babbaj:nether-pathfinder:..."`, which is Fabric's
+**jar-in-jar**: the dependency is nested at `META-INF/jars/nether-pathfinder-1.4.1.jar` and named in
+that jar's own `fabric.mod.json` `jars` array. Fabric Loader unpacks nested jars during **mod
+discovery**, but Nylium extracts the module and adds it to the classpath at **prelaunch**, long
+after discovery is over, and the universal jar's generated outer `fabric.mod.json` carries no `jars`
+key of its own. The bytes are present in the extracted module and simply unreachable: a jar nested
+inside a jar is not on any classpath.
+
+`NetherPathfinderContext.isSupported()` is a bare `return NetherPathfinder.isThisSystemSupported();`
+with no guard, so a missing class is a hard crash during `Initializing game` rather than a disabled
+elytra feature.
+
+**Only Fabric is affected, and it is measured, not assumed.** `forge` and `neoforge` declare
+`shadowCommon "dev.babbaj:nether-pathfinder:..."`, which flattens the classes into the jar:
+
+| Module jar | `META-INF/jars` entries | `dev/babbaj` class entries |
+| --- | --- | --- |
+| `baritone-fabric` 1.21.10 and 1.21.11 | 2 | 0 |
+| `baritone-forge` 1.21.11 | 0 | 62 |
+| `baritone-neoforge` 1.21.11 | 0 | 62 |
+
+So both Fabric modules in the universal jar are broken and both Forge modules are fine.
+
+**No server boot could ever have caught this.** Baritone's mixins are client-only, so on a dedicated
+server `BaritoneAPI` is never initialised and `NetherPathfinder` is never touched, which is exactly
+why all three server rows above are green. Anyone tempted to treat the server matrix as SP-3's
+acceptance test should read this as the counterexample.
+
+### The fix is a decision, not yet taken
+
+Two routes, and they are not exclusive:
+
+1. **Flatten in Baritone.** Make the Fabric node shade `nether-pathfinder` the way `forge` and
+   `neoforge` already do, so the module carries the classes directly. Narrow and immediate. The cost
+   is that `include` is the idiomatic Fabric mechanism, so this either changes the standalone Fabric
+   release jar too or needs a module-only variant built just for `:universal`.
+2. **Handle nested jars in Nylium.** Either hoist each module's `META-INF/jars` entries into the
+   universal jar's own `fabric.mod.json` `jars` array at package time, or have the kernel extract a
+   module's nested jars alongside it and add them to the classpath. This is the more correct fix,
+   since a Fabric mod with `include`d dependencies is an ordinary shape and every future consumer
+   would otherwise hit this, and it belongs in Nylium's own limitations list.
+
+Neither was implemented, because it spans two repos and changes what gets shipped.
+
+### How the client was booted, since no harness does it
+
+Nylium's smoke harness provisions servers only, and a dev client is the wrong environment: unimined
+runs the game in the `named` namespace while the universal jar's modules are remapped to
+`intermediary`, and the kernel extracts them at prelaunch, after Fabric's dev remapping step. So the
+client has to be a production one. The launcher used was a throwaway PowerShell script, NOT
+committed, that reuses the machine's existing `.minecraft` read-only: it merges the Fabric profile
+JSON from `meta.fabricmc.net` with the vanilla version JSON, resolves libraries, extracts the
+windows natives and launches `net.fabricmc.loader.impl.launch.knot.KnotClient`. Everything needed to
+rebuild it is in the traps below. On this machine 85 of 93 classpath entries came from `libraries/`, assets came
+from its `assets/` with index 27, and only 7 small Fabric jars were downloaded. The game directory is
+a scratch directory, never the real `.minecraft`, so the real `mods/` is untouched.
+
+Three traps, all of which cost a launch attempt:
+
+- **A java `@argfile` treats backslash as an escape inside quotes**, so a Windows classpath written
+  into one arrives mangled and the launch dies with `ClassNotFoundException` on the main class.
+  Write those paths with forward slashes, which Java accepts on Windows.
+- **Libraries must be deduplicated by `group:artifact`, with the Fabric profile winning.** Fabric
+  ships ASM 9.7.1 and vanilla 1.21.10 ships 9.6, and Fabric Loader refuses to start with both:
+  `duplicate ASM classes found on classpath`. That precedence is what the vanilla launcher applies
+  when merging an `inheritsFrom` profile.
+- **Fabric Loader 0.16.9 is too old for a 1.21.10 client.** It works, but its bundled Mixin caps at
+  `JAVA_13`/class version 61 and warns on every 1.21.10 class it touches
+  (`Class version 65 required is higher than the class version supported`). The nested-jar crash is
+  independent of this, but pick a newer loader before reading any client result as clean.
+
+The 401 `Failed to fetch user properties` and Realms errors are expected: the launch is offline with
+`--accessToken 0`, and single-player is unaffected.
+
+### 1.21.11 on a client is untested, deliberately
+
+Its asset index is 29 and this machine has 26, 27, 30 and 32, so verifying it means downloading an
+asset set. Not worth it while the nested-jar crash stands, since 1.21.11's Fabric module has the
+identical nested layout (table above) and will fail the same way.
 
 ### How to re-run this, and the two traps in doing so
 
