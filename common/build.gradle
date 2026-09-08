@@ -78,7 +78,13 @@ unimined.minecraft(sourceSets.main) {
     mappings {
         intermediary()
         mojmap()
-        parchment(project.minecraft_version, project.parchment_version)
+        // Optional per node: parchment only adds parameter names and javadoc on top of mojmap,
+        // which already supplies every name the source compiles against, and parchmentmc is a
+        // single point of failure a node should not be forced through. Omit parchment_version to
+        // build a version parchment has no release for, or none cached while its host is down.
+        if (project.hasProperty('parchment_version')) {
+            parchment(project.minecraft_version, project.parchment_version)
+        }
     }
 
     runs.off = true

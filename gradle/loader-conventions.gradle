@@ -85,7 +85,10 @@ unimined.minecraft(sourceSets.main) {
     mappings {
         intermediary()
         mojmap()
-        parchment(minecraftVersion, parchmentVersion)
+        // Optional, see the same guard in common/build.gradle.
+        if (parchmentVersion != null) {
+            parchment(minecraftVersion, parchmentVersion)
+        }
     }
 
     if (loaderBlock != null) {
