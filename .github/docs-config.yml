@@ -1,0 +1,8 @@
+kind: java-library
+title: Baritone
+description: A Minecraft pathfinding bot, shipped as one universal jar that loads the module matching whatever loader and Minecraft version it lands on.
+content_intro: Everything below covers what this fork ships, how to get started, and the API surface consumers are allowed to use.
+sections:
+  - title
+  - description
+  - content
