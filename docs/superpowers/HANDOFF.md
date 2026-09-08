@@ -14,7 +14,7 @@ reaches the main menu and stays up. See "The Fabric modules crashed the client" 
 and the verification, and "The universal jar has now been booted" for the server runs.
 
 **The largest remaining item is no longer about booting.** It is folding the other versions in:
-`development` carries two Stonecutter nodes against `origin`'s 20 per-version branches, and the
+`development` carries three Stonecutter nodes against `origin`'s 20 per-version branches, and the
 2026-07-13 requirement to port 1.16.5, 1.17.1 and 1.18.2 onto unimined+Mojmap is still live and
 still the precondition for deleting any of those branches.
 
@@ -131,15 +131,19 @@ actually compiled against and cannot be folded.
 
 ## State of the Stonecutter version dimension
 
-**Both version nodes compile, re-confirmed 2026-09-08** as part of a full nine-node build.
-`./gradlew :common:1.21.10:build` and `:common:1.21.11:build` are each green. Two pieces got them
-there.
+**Three version nodes as of 2026-09-08 evening: 1.21.11, 1.21.10 and 1.21.8.** All three
+`:common:<version>:build` invocations are green, as are `:fabric:1.21.8:build` and
+`:forge:1.21.8:build`, and the universal jar now spans all three in six modules. The 1.21.8 fold-in
+is written up in "Folding in 1.21.8, and the recipe that actually works" below; the two pieces that
+got 1.21.10 working are still the mechanism, so read this section first.
 
 **1. `common/stonecutter.gradle` carries a `stonecutter.parameters {}` block** with six per-version
 source replacements porting the 1.21.11-authored shared source down to 1.21.10 mappings (Identifier
 to ResourceLocation, ResourceKey.identifier() to location(), camera.position() to getPosition(), the
 Util and monster-class package moves). The version gate is correct: the block evaluates once per
 node and reports `pre1_21_11=true` for 1.21.10 and `false` for 1.21.11, so 1.21.11 is untouched.
+**All six also apply to 1.21.8**, which is correct since each is a rename 1.21.11 introduced, and
+compilation on 1.21.8 is the proof.
 
 Note that **Stonecutter generates five source sets here** (`api`, `launch`, `main`,
 `schematica_api`, `test`). The `camera.position()` replacement only ever appears in `launch`.
@@ -168,6 +172,92 @@ previous alpha exactly.
 approach equivalent to 1.21.11's per-vertex one. Check that invariant still holds before adding a
 batch that mixes widths on 1.21.10: it would silently render every line at the last width set.
 
+## Folding in 1.21.8, and the recipe that actually works
+
+**Done 2026-09-08 evening.** This is the first version folded in since the two-node state, so treat
+it as the worked example for the rest of the matrix rather than the 2026-07-13 plan's Task 7, whose
+Step 4 proposes Stonecutter `//? if` conditionals in the shared source. Nothing here uses those. The
+mechanism is source replacements plus per-node overlays, and it worked without touching one line of
+shared source.
+
+**The delta is the authoritative work list.** `git diff upstream/1.21.10 upstream/1.21.8 -- '*.java'`
+is 9 files, 49 insertions and 30 deletions. That is far smaller than the 37-file
+1.21.11-to-1.21.10 diff, so a version that looks distant by number can be cheap. **Measure before
+estimating.**
+
+Split the 9 by shape, which is the judgement the recipe needs:
+
+- **13 string replacements** in a new `isPre1_21_10` block for the 6 files whose divergence is a
+  rename or a signature shuffle: the `ServerLevelStub` constructor gaining a `ChunkProgressListener`,
+  the mixin target descriptor form (`Lowner;method` against `owner.method`), `Minecraft.setLevel`
+  carrying a `ReceivingLevelScreen.Reason`, `renderLevel` taking one fewer `Matrix4f`,
+  `Palette.write` taking the block-state registry, and `Palette` lacking `maybeHas` and the
+  resize-hint `idFor` overload.
+- **4 per-node overlay files** under `common/versions/1.21.8/src` for the renderer, where the
+  divergence is structural. Two are verbatim copies of the 1.21.10 overlay
+  (`mixins.baritone.json`, which is byte-identical between upstream 1.21.10 and 1.21.8, and
+  `IRenderer`, which does not appear in the delta at all), and two are authored: `BaritoneRenderType`
+  drops the `pipeline()` override and uses `RenderSystem.getModelOffset()`, and `PathRenderer`
+  restores the working `BeaconRenderer.renderBeaconBeam` call that 1.21.10 has commented out.
+
+Note the overlay cost: a file that is identical on 1.21.8 and 1.21.10 but differs on 1.21.11 has to
+be **duplicated** into both node directories, because an overlay is per node with no way to share
+one between some nodes. `IRenderer` is now three near-identical copies. That is the standing tax of
+this design and it grows with the matrix.
+
+**The replacements stack, and that is the load-bearing trick.** The shared source is authored for
+1.21.11; the `<1.21.11` block ports it to 1.21.10; the new `<1.21.10` block carries it the rest of
+the way to 1.21.8. Verified by the gate's own output, which prints
+`pre1_21_11=true pre1_21_10=true` for 1.21.8 and `pre1_21_10=false` for both older nodes, so
+neither existing node is touched. `:common:1.21.10:build` and `:common:1.21.11:build` were re-run
+and stayed green.
+
+**Let the compiler adjudicate; do not reason it out.** Two of the nine were wrong on first pass and
+six errors named both: `PaletteResize` is package-private before 1.21.10, so its import had to be
+replaced out rather than merely left unused, and `GuiClick` had been read in the delta and then not
+encoded at all. Both are the sort of thing that is cheaper to compile than to argue about.
+
+### The measured payoff of a third version
+
+Deduped universal jar: 4,284,645 bytes over 6 modules, 1092 object-store blobs, against 3,993,028
+bytes over 4 modules for two versions. So 1.21.8's two loader jars, **3,620,565 bytes raw**, added
+**291,617 bytes**, about 8 percent of their own size. Approximate, since the two jars were built at
+different commits and the version string differs in length, but not by anything near that margin.
+
+This is the answer to the adjacency caveat recorded further down: it predicted a distant version
+pair would dedupe far worse. Across 1.21.8 to 1.21.11 that has not happened, because Baritone's own
+bytecode barely moves between these Minecraft versions. Do not read it as settled for a genuinely
+distant target; 1.16.5 is a different proposition.
+
+### The blocker this hit, and the change it forced
+
+**parchmentmc is still down** (measured: `https://maven.parchmentmc.org/` returns nothing, HTTP 000,
+while GitHub returns 200), and the Gradle cache here holds parchment only for 1.21.10 and 1.21.11.
+`parchment(...)` was mandatory in both `common/build.gradle` and `gradle/loader-conventions.gradle`,
+so a new node could not resolve mappings at all.
+
+It is now **optional per node**: declare no `parchment_version` and the node builds on
+intermediary plus mojmap, which is what `common/versions/1.21.8/gradle.properties` does. mojmap
+already supplies every name the source compiles against; parchment only adds parameter names and
+javadoc. 1.21.10 and 1.21.11 still declare theirs and are unchanged.
+
+**A consequence worth knowing before trusting CI:** those two nodes still require parchment, and a
+fresh runner has no cache, so **this repo's CI is red for an external reason** until parchmentmc
+returns. Dropping parchment from them would change their mappings and is the owner's call.
+
+### Defect found, not fixed: `dist/` collides across version nodes
+
+`CreateDistTask` copies each artifact into a flat `dist/` under the artifact's own file name, which
+carries the loader and the mod version but **not the Minecraft version**. With three version nodes
+per loader, `:fabric:1.21.8:createDist` and `:fabric:1.21.10:createDist` write the same path, so
+after a whole-tree build `dist/` holds one arbitrary version per loader and `checksums.txt` is
+computed over whatever survived. Latent since loaders became Stonecutter nodes, and invisible while
+only one version was ever active.
+
+Left as is on the owner's decision of 2026-09-08: the universal jar is the deliverable and the
+per-version release matrix is superseded, so `dist/` is legacy. Fixing it means changing published
+artifact file names.
+
 ## SP-3 blocker: REMOVED 2026-09-08
 
 **Loaders are now Stonecutter dimensions and one invocation builds every version.** This section
@@ -178,18 +268,23 @@ previously described the blocker and the spike that answered it; both are histor
 
 ### What one `./gradlew build` now produces
 
-Measured, not assumed. Nine version nodes build in a single invocation:
+Measured when this was written, at two versions and nine nodes. **1.21.8 has since been folded in**,
+so the tree is now fourteen nodes; the counts below were not re-measured at three versions, and
+`:common:1.21.8`, `:fabric:1.21.8` and `:forge:1.21.8` were each built individually rather than as
+one invocation.
 
 | Project | Nodes |
 | --- | --- |
-| `:common` | 1.21.10, 1.21.11 |
-| `:fabric` | 1.21.10, 1.21.11 |
-| `:forge` | 1.21.10, 1.21.11 |
-| `:neoforge` | 1.21.11 only |
-| `:tweaker` | 1.21.10, 1.21.11 |
+| `:common` | 1.21.8, 1.21.10, 1.21.11 |
+| `:fabric` | 1.21.8, 1.21.10, 1.21.11 |
+| `:forge` | 1.21.8, 1.21.10, 1.21.11 |
+| `:neoforge` | 1.21.8, 1.21.11 |
+| `:tweaker` | 1.21.8, 1.21.10, 1.21.11 |
 
-Seven remapped loader jars, 42 jars in total counting the api, dev, unoptimized and standalone
-variants. Each node's jar declares its OWN Minecraft version: `:fabric:1.21.10`'s `fabric.mod.json`
+At two versions that was seven remapped loader jars and 42 in total counting the api, dev,
+unoptimized and standalone variants. **`:neoforge:1.21.8` and `:tweaker:1.21.8` have never been
+built**, only registered: 1.21.8's `available_loaders` declares them, and only the two loaders the
+universal jar actually ships were built. Each node's jar declares its OWN Minecraft version: `:fabric:1.21.10`'s `fabric.mod.json`
 says `"minecraft": ["1.21.10"]`, which before this work was hardcoded to 1.21.11 in a single shared
 resource and would have shipped wrong the moment two versions built together.
 
@@ -211,14 +306,16 @@ resource and would have shipped wrong the moment two versions built together.
 ### The universal jar exists
 
 `:universal` applies `io.github.intisy.nylium` and produces
-`universal/build/distributions/baritone-<version>-universal.jar`, carrying four modules:
+`universal/build/distributions/baritone-<version>-universal.jar`, carrying six modules:
 
 | Module | Platform | Minecraft |
 | --- | --- | --- |
 | `baritone-fabric-1.21.11` | `FABRIC` | 1.21.11 |
 | `baritone-fabric-1.21.10` | `FABRIC` | 1.21.10 |
+| `baritone-fabric-1.21.8` | `FABRIC` | 1.21.8 |
 | `baritone-forge-1.21.11` | `MODLAUNCHER_9` | 1.21.11 |
 | `baritone-forge-1.21.10` | `MODLAUNCHER_9` | 1.21.10 |
+| `baritone-forge-1.21.8` | `MODLAUNCHER_9` | 1.21.8 |
 
 Note **Forge 1.21.x is `MODLAUNCHER_9`, not a "FORGE" platform**; Nylium's `PlatformId` enum is
 `LAUNCHWRAPPER, MODLAUNCHER_8, MODLAUNCHER_9, NEOFORGE, FABRIC`, keyed on the bootstrap family
@@ -584,6 +681,7 @@ destroy work that has not been folded in yet.** `origin` carries 20 per-version 
 | Branch | Java files | Ancestor of `development`? | Safe to delete? |
 | --- | --- | --- | --- |
 | `1.21.10` | 363 | yes | **deleted 2026-09-06** |
+| `1.21.8` | 363 | yes | **YES, not yet deleted** |
 | `1.21.4` | 360 | no | **NO** |
 | `1.16.5` | 340 | no | **NO** |
 | `1.17.1` | 316 | no | **NO** |
@@ -601,11 +699,47 @@ own `baritone/utils/IRenderer.java` and `PathRenderer.java`. Those per-version o
 what the 1.21.10 port needed, and they are the input for every version still to be folded in. The
 2026-07-13 plan's requirement to port 1.16.5, 1.17.1 and 1.18.2 onto unimined+Mojmap is still live.
 
+**`1.21.8` now satisfies both conditions, measured 2026-09-08:** its version exists as a Stonecutter
+node, and `git merge-base --is-ancestor origin/1.21.8 development` returns true, so every commit on
+it is reachable from `development` and the ref carries no unique work. It was left in place anyway,
+because deleting someone else's remote branch is not a side effect to take unasked.
+
 **So: delete a version branch only once its version exists as a Stonecutter node under
 `common/versions/`, and check `--is-ancestor` first.** Deleting them as a batch before the collapse
 finishes would leave 18 targets with no source to fold.
 
-## Known rule violation, not yet fixed
+## Known rule violations
+
+### CI workflows: half closed, 2026-09-08
+
+The global rule is that a consumer repo's `.github/workflows/*` are thin callers and any workflow
+carrying `runs-on`, `steps` or logic belongs in a shared workflows repo. Both of this repo's
+workflows violated it.
+
+`run_tests.yml` **is fixed**: it now calls
+`intisy/workflows/.github/workflows/test.yml@main` with `java_version`, `gradle_test` and a raised
+timeout, the same shape Nylium uses, with no behaviour lost.
+
+`gradle_build.yml` **is not**, and cannot be closed from inside this repo. It builds and uploads
+`dist/` and `mapping/` as artifacts, and no reusable workflow in `intisy/workflows` uploads
+artifacts. Two inputs also have to exist there before a caller can work:
+
+- `artifact_paths` / `artifact_name`, since nothing uploads artifacts today.
+- `fetch_depth`. The shared `test.yml` checks out at the default shallow depth with no tags, and
+  this repo's version comes from `git describe --tags`, so a converted build would silently fall
+  back to the static `mod_version` instead of failing visibly.
+
+**The change is written and committed but NOT pushed:** the push to `intisy/workflows` was refused
+by this environment's permission layer, so it exists only as a patch. Re-create it there (add the
+two artifact inputs and `fetch_depth`, pass `fetch-depth` to the primary checkout, and upload after
+`post_test` with `if-no-files-found: error` and the runner label appended to the artifact name),
+push it, and only then convert `gradle_build.yml`. Converting the caller first would point it at
+inputs that do not exist and break CI outright.
+
+Note that `intisy/workflows` itself has only `main` and one stale feature branch, with no
+`development`, which the global two-branch rule expects. Not restructured here.
+
+### README on `development`
 
 `development` still carries a hand-written `README.md` inherited from upstream. The global rule is
 that READMEs are generated onto the default branch only, and a development branch carries the
