@@ -376,9 +376,10 @@ Proven: per-version module selection, extraction from the deduped object store, 
 registration, Baritone's own connector class loading on ML9, and no crash across a full boot and a
 clean shutdown.
 
-**Not proven: that Baritone does anything.** All 21 entries in `mixins.baritone.json` sit in its
-`client` block and its `mixins` block is empty, so on a dedicated server not one Baritone mixin
-applies; the ML9 connector registers the config and Mixin then skips every entry. Baritone is a
+**Not proven: that Baritone does anything.** Every entry in `mixins.baritone.json` sits in its
+`client` block, 21 of them on 1.21.11 and 20 on 1.21.10, and its `mixins` block is empty on both, so
+on a dedicated server not one Baritone mixin applies; the ML9 connector registers the config and
+Mixin then skips every entry. Baritone is a
 client mod, so this is the ceiling for server-side verification. Do not read these three green rows
 as "Baritone works on one jar" - read them as "the jar dispatches the right Baritone to the right
 version, and nothing crashes." The client run below shows how much that gap mattered.
