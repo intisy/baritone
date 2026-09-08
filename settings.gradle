@@ -51,14 +51,39 @@ plugins {
 rootProject.name = 'baritone'
 
 include('common')
-
-stonecutter {
-    create(project(':common')) {
-        versions('1.21.11', '1.21.10')
-        vcsVersion = '1.21.11'
-    }
+for (platform in available_loaders.split(",")) {
+    include(platform)
 }
 
-for (platform in available_loaders.split(",")) {
-       include(platform)
+def minecraft_versions = ['1.21.11', '1.21.10']
+
+def loadersSupporting = { version ->
+    def props = new Properties()
+    new File(rootDir, "common/versions/${version}/gradle.properties").withInputStream { props.load(it) }
+    props.getProperty('available_loaders').split(',').collect { it.trim() }
+}
+
+// Loader includes must precede this block: create() requires the projects to already exist.
+stonecutter {
+    kotlinController = false
+
+    create(project(':common')) {
+        versions(*minecraft_versions)
+        vcsVersion = minecraft_versions.first()
+    }
+
+    // Each loader carries only the versions that declare it, so a node like ':neoforge:1.21.10'
+    // is never created rather than created and skipped. A skipped node still gets the java plugin
+    // from the shadow plugin and would compile loader source with no loader on the classpath.
+    available_loaders.split(",").each { loader ->
+        loader = loader.trim()
+        def supported = minecraft_versions.findAll { loadersSupporting(it).contains(loader) }
+        if (supported.isEmpty()) {
+            return
+        }
+        create(project(":${loader}")) {
+            versions(*supported)
+            vcsVersion = supported.first()
+        }
+    }
 }

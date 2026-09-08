@@ -22,23 +22,15 @@ plugins {
     id "com.github.johnrengelman.shadow" version "8.0.0"
 }
 
-// Per-version loader scoping: skip this loader entirely when the ACTIVE Stonecutter version's
-// loader set (root build.gradle -> rootProject.active_loaders) does not list it. The root
-// allprojects{} block likewise withholds java/unimined from unscoped loaders, so this early
-// return also avoids referencing the then-absent `unimined` extension. Result: no jar, no error.
-if (!rootProject.active_loaders.contains(project.name)) {
-    return
-}
-
-archivesBaseName = archivesBaseName + "-fabric"
-
-unimined.minecraft {
+ext.loaderBlock = { loaderVersion ->
     fabric {
-        // Per-version loader constant, loaded into root from the active version node
-        // (see build.gradle). Loaders are not Stonecutter nodes so they read it from root.
-        loader rootProject.fabric_version
+        loader loaderVersion
     }
 }
+
+apply from: rootProject.file('gradle/loader-conventions.gradle')
+
+archivesBaseName = archivesBaseName + "-fabric"
 
 configurations {
     common
@@ -47,28 +39,23 @@ configurations {
     runtimeClasspath.extendsFrom common
 }
 
-// Resolve the ACTIVE ':common' Stonecutter version node, configured before we read its outputs.
-evaluationDependsOn(':common')
-def commonNode = project(":common:${project(':common').stonecutter.current.version}")
-evaluationDependsOn(commonNode.path)
-
 dependencies {
-    // Bundle the ACTIVE ':common' node's outputs (multiple sourcesets => `common project(...)` won't work).
+    // Multiple sourcesets, so `common project(...)` won't work.
     for (sourceSet in commonNode.sourceSets) {
         if (sourceSet == commonNode.sourceSets.test) continue
         if (sourceSet == commonNode.sourceSets.schematica_api) continue
         common sourceSet.output
         shadowCommon sourceSet.output
     }
-    include "dev.babbaj:nether-pathfinder:${project.nether_pathfinder_version}"
+    include "dev.babbaj:nether-pathfinder:${rootProject.nether_pathfinder_version}"
 }
 
 processResources {
     inputs.property "version", project.version
-    inputs.property "minecraft_version", rootProject.minecraft_version
+    inputs.property "minecraft_version", nodeVersion
 
     filesMatching("fabric.mod.json") {
-        expand "version": project.version, "minecraft_version": rootProject.minecraft_version
+        expand "version": project.version, "minecraft_version": nodeVersion
     }
 }
 
@@ -107,7 +94,7 @@ build.finalizedBy(createDist)
 publishing {
     publications {
         mavenFabric(MavenPublication) {
-            artifactId = rootProject.archives_base_name + "-" + project.name
+            artifactId = rootProject.archives_base_name + "-" + loaderName + "-" + nodeVersion
             from components.java
         }
     }

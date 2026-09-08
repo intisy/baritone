@@ -23,15 +23,7 @@ plugins {
     id "com.github.johnrengelman.shadow" version "8.0.0"
 }
 
-// Per-version loader scoping: skip this loader entirely when the ACTIVE Stonecutter version's
-// loader set (root build.gradle -> rootProject.active_loaders) does not list it. The root
-// allprojects{} block likewise withholds java/unimined from unscoped loaders, so this early
-// return also avoids referencing the then-absent `unimined` extension. Result: no jar, no error.
-if (!rootProject.active_loaders.contains(project.name)) {
-    return
-}
-
-unimined.minecraft {
+ext.loaderBlock = { loaderVersion ->
     runs {
         config("client") {
             mainClass = "net.minecraft.launchwrapper.Launch"
@@ -40,6 +32,9 @@ unimined.minecraft {
     }
 }
 
+apply from: rootProject.file('gradle/loader-conventions.gradle')
+
+
 configurations {
     common
     shadowCommon // Don't use shadow from the shadow plugin because we don't want IDEA to index this.
@@ -47,20 +42,15 @@ configurations {
     runtimeClasspath.extendsFrom common
 }
 
-// Resolve the ACTIVE ':common' Stonecutter version node, configured before we read its outputs.
-evaluationDependsOn(':common')
-def commonNode = project(":common:${project(':common').stonecutter.current.version}")
-evaluationDependsOn(commonNode.path)
-
 dependencies {
-    implementation "org.spongepowered:mixin:${project.mixin_version}"
+    implementation "org.spongepowered:mixin:${rootProject.mixin_version}"
 
     // for some reason mixin isn't including these...
-    implementation "org.ow2.asm:asm:${project.asm_version}"
-    implementation "org.ow2.asm:asm-tree:${project.asm_version}"
-    implementation "org.ow2.asm:asm-commons:${project.asm_version}"
-    implementation "org.ow2.asm:asm-util:${project.asm_version}"
-    implementation "org.ow2.asm:asm-analysis:${project.asm_version}"
+    implementation "org.ow2.asm:asm:${rootProject.asm_version}"
+    implementation "org.ow2.asm:asm-tree:${rootProject.asm_version}"
+    implementation "org.ow2.asm:asm-commons:${rootProject.asm_version}"
+    implementation "org.ow2.asm:asm-util:${rootProject.asm_version}"
+    implementation "org.ow2.asm:asm-analysis:${rootProject.asm_version}"
 
 
     implementation 'com.github.ImpactDevelopment:SimpleTweaker:1.2'
@@ -71,7 +61,7 @@ dependencies {
 
     compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
 
-    // Bundle the ACTIVE ':common' node's outputs (multiple sourcesets => `common project(...)` won't work).
+    // Multiple sourcesets, so `common project(...)` won't work.
     for (sourceSet in commonNode.sourceSets) {
         if (sourceSet == commonNode.sourceSets.test) continue
         if (sourceSet == commonNode.sourceSets.schematica_api) continue
@@ -120,7 +110,7 @@ build.finalizedBy(createDist)
 publishing {
     publications {
         mavenCommon(MavenPublication) {
-            artifactId = rootProject.archives_base_name
+            artifactId = rootProject.archives_base_name + "-" + loaderName + "-" + nodeVersion
             from components.java
         }
     }

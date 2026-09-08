@@ -15,6 +15,16 @@
  * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Root is a pure aggregator. The shared baritone code lives in the Stonecutter node
-// ':common:<version>'; each loader is its own Stonecutter dimension, configured by
-// gradle/loader-conventions.gradle, which every loader version node applies.
+def describedVersion = ""
+try {
+    describedVersion = 'git describe --always --tags --first-parent --dirty'.execute().text.trim()
+} catch (Exception e) {
+    println "Version detection failed: " + e
+}
+if (!describedVersion.startsWith("v")) {
+    println "using version number: " + rootProject.mod_version
+    ext.baritoneVersion = rootProject.mod_version
+} else {
+    ext.baritoneVersion = describedVersion.substring(1)
+    println "Detected version " + ext.baritoneVersion
+}

@@ -1,0 +1,141 @@
+/*
+ * This file is part of Baritone.
+ *
+ * Baritone is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Baritone is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// Applied by each loader's PER-NODE script (<loader>/build.gradle under a Stonecutter version
+// node). Every node reaching here is supported: settings.gradle gives each loader only the
+// versions that declare it.
+
+def versionProps = new Properties()
+rootProject.file("common/versions/${stonecutter.node.metadata.version}/gradle.properties")
+        .withInputStream { versionProps.load(it) }
+
+ext.nodeVersion = stonecutter.node.metadata.version
+ext.loaderName = project.parent.name
+ext.loaderVersion = versionProps.getProperty("${ext.loaderName}_version")
+ext.commonNode = project(":common:${ext.nodeVersion}")
+
+def minecraftVersion = versionProps.getProperty('minecraft_version')
+def javaVersion = versionProps.getProperty('java_version')
+def parchmentVersion = versionProps.getProperty('parchment_version')
+
+// ProguardTask resolves its toolchain from a project property of exactly this name.
+ext.java_version = javaVersion
+
+apply plugin: 'java'
+apply plugin: "xyz.wagyourtail.unimined"
+apply plugin: "maven-publish"
+
+archivesBaseName = rootProject.archives_base_name
+group = rootProject.maven_group
+
+apply from: rootProject.file('gradle/mod-version.gradle')
+version = ext.baritoneVersion
+
+sourceCompatibility = targetCompatibility = JavaVersion.toVersion(javaVersion)
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(sourceCompatibility.majorVersion.toInteger()))
+    }
+}
+
+// parchmentmc hosts only mapping data, but is otherwise probed for every cache miss and is slow
+// enough to time out and fail resolution outright. unimined adds its own parchmentmc repository,
+// so scope them as they are added rather than only the one declared below.
+repositories.whenObjectAdded { repo ->
+    if (repo instanceof MavenArtifactRepository && repo.url?.host?.contains('parchmentmc')) {
+        repo.content {
+            includeGroup "org.parchmentmc.data"
+        }
+    }
+}
+
+repositories {
+    maven {
+        url = "https://files.minecraftforge.net/maven/"
+    }
+    maven {
+        name = 'spongepowered-repo'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+    }
+    maven {
+        name = 'fabric-maven'
+        url = 'https://maven.fabricmc.net/'
+    }
+    maven {
+        name = 'impactdevelopment-repo'
+        url = 'https://impactdevelopment.github.io/maven/'
+    }
+    maven {
+        name = "ldtteam"
+        url = "https://maven.parchmentmc.net/"
+    }
+    // for the newer version of launchwrapper
+    maven {
+        name = "multimc-maven"
+        url = "https://files.multimc.org/maven/"
+        metadataSources {
+            artifact()
+        }
+    }
+    mavenCentral()
+    maven {
+        name = 'babbaj-repo'
+        url = 'https://babbaj.github.io/maven/'
+    }
+}
+
+dependencies {
+    compileOnly "org.spongepowered:mixin:${rootProject.mixin_version}"
+    compileOnly "org.ow2.asm:asm:${rootProject.asm_version}"
+
+    implementation "dev.babbaj:nether-pathfinder:${rootProject.nether_pathfinder_version}"
+
+    implementation 'com.google.code.findbugs:jsr305:3.0.2'
+}
+
+evaluationDependsOn(ext.commonNode.path)
+
+// Captured before the closure below, whose delegate is unimined's config rather than the project.
+def loaderBlock = ext.has('loaderBlock') ? ext.loaderBlock : null
+def loaderVersion = ext.loaderVersion
+
+// Immediate apply, never the lateApply overload: a Stonecutter version node swallows unimined's
+// deferred afterEvaluate and fails with "minecraft config never applied for source set 'main'".
+unimined.minecraft(sourceSets.main) {
+    version minecraftVersion
+
+    mappings {
+        intermediary()
+        mojmap()
+        parchment(minecraftVersion, parchmentVersion)
+    }
+
+    if (loaderBlock != null) {
+        loaderBlock.delegate = delegate
+        loaderBlock.resolveStrategy = Closure.DELEGATE_FIRST
+        loaderBlock(loaderVersion)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+
+    if (JavaVersion.current().isJava9Compatible()) {
+        it.options.release = javaVersion.toInteger()
+    }
+}
